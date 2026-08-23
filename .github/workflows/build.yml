@@ -21,6 +21,9 @@ jobs:
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3-distutils python3-setuptools rsync unzip zlib1g-dev \
             file wget qemu-utils libelf-dev jq
+          sudo apt-get clean
+          echo "=== disk after deps ==="
+          df -h
 
       - name: Clone iStoreOS 24.10 source
         run: |
@@ -70,7 +73,31 @@ jobs:
         run: |
           set -o pipefail
           cd build/istoreos
+          echo "=== disk before build ==="
+          df -h
           make -j$(nproc) V=s 2>&1 | tee /tmp/build.log
+          echo "=== disk after build ==="
+          df -h
+
+      - name: Extract build errors (always)
+        if: always()
+        run: |
+          echo "=== disk usage ==="
+          df -h || true
+          du -sh build/istoreos/dl build/istoreos/build_dir build/istoreos/staging_dir 2>/dev/null || true
+          if [ -f /tmp/build.log ]; then
+            echo "=== last 40 lines of build.log ==="
+            tail -n 40 /tmp/build.log || true
+            echo "=== matched error lines in build.log ==="
+            grep -nEi "no space left|error:|error [0-9]+|fatal|recipe for target|make\[[0-9]+\][^:]*:(error|no rule)|unable to|failed to|killed|out of memory|signal [0-9]" /tmp/build.log | tail -n 120 || true
+            grep -nEi "no space left|error:|error [0-9]+|fatal|recipe for target|killed|out of memory" /tmp/build.log | tail -n 120 > /tmp/build-errors.txt || true
+          else
+            echo "no /tmp/build.log (make may have failed before writing log)"
+          fi
+          if [ -f /tmp/kernel-prepare.log ]; then
+            echo "=== kernel-prepare.log tail ==="
+            tail -n 20 /tmp/kernel-prepare.log || true
+          fi
 
       - name: Verify firmware output
         run: |
@@ -107,6 +134,7 @@ jobs:
           name: build-log
           path: |
             /tmp/build.log
+            /tmp/build-errors.txt
             /tmp/kernel-prepare.log
             build/istoreos/logs/
             build/istoreos/build_dir/target-*/linux-*/quilt.log
