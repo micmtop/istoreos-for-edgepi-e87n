@@ -38,28 +38,54 @@ jobs:
           cd build/istoreos
           cp ../e87n.config .config
           make defconfig
+          echo "=== device symbols after defconfig ==="
+          grep -E '^CONFIG_TARGET_mediatek_filogic_DEVICE_' .config || true
+          echo "=== E87N device check ==="
+          if grep -q '^CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n=y' .config; then
+            echo "E87N DEVICE ENABLED"
+          else
+            echo "FATAL: edgepi_e87n device NOT enabled after defconfig"
+            echo "check apply.sh: filogic.mk TARGET_DEVICES += edgepi_e87n and dts files"
+            exit 1
+          fi
 
       - name: Show selected packages
         run: |
           cd build/istoreos
           grep -E '^CONFIG_PACKAGE_luci-app-' .config | sort
 
+      - name: Prepare kernel (apply MT7987 patches via quilt)
+        run: |
+          cd build/istoreos
+          make target/linux/prepare V=s 2>&1 | tee /tmp/kernel-prepare.log
+          echo "=== quilt log tail ==="
+          find build_dir -name "quilt.log" -exec tail -n 40 {} \; 2>/dev/null || true
+          if grep -qE "Patch .* does not apply|Failed to apply|quilt.*ERROR|Error:" /tmp/kernel-prepare.log; then
+            echo "FATAL: kernel patch application failed"
+            exit 1
+          fi
+          echo "KERNEL PREPARE OK"
+
       - name: Build firmware
         run: |
+          set -o pipefail
           cd build/istoreos
           make -j$(nproc) V=s 2>&1 | tee /tmp/build.log
 
-      - name: List build outputs
+      - name: Verify firmware output
         run: |
           cd build/istoreos
           echo "=== filogic dir ==="
           ls -la bin/targets/mediatek/filogic/ 2>/dev/null || echo "NO filogic dir"
-          echo "=== find .bin/.itb ==="
-          find bin -name "*.bin" -o -name "*.itb" 2>/dev/null | head -60
-          echo "=== find e87n ==="
-          find bin -iname "*e87n*" 2>/dev/null | head -30
-          echo "=== find sysupgrade ==="
-          find bin -iname "*sysupgrade*" 2>/dev/null | head -30
+          echo "=== find e87n/sysupgrade ==="
+          find bin/targets -iname "*e87n*" -ls 2>/dev/null || true
+          find bin/targets -iname "*sysupgrade*" -ls 2>/dev/null || true
+          if ls bin/targets/mediatek/filogic/*e87n*sysupgrade*.bin >/dev/null 2>&1; then
+            echo "FIRMWARE OK"
+          else
+            echo "FATAL: no E87N sysupgrade image produced"
+            exit 1
+          fi
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
@@ -74,13 +100,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload build logs (on failure)
-        if: failure()
+      - name: Upload build log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs
+          name: build-log
           path: |
             /tmp/build.log
+            /tmp/kernel-prepare.log
             build/istoreos/logs/
             build/istoreos/build_dir/target-*/linux-*/quilt.log
           retention-days: 7
