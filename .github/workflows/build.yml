@@ -24,6 +24,7 @@ jobs:
 
       - name: Clone iStoreOS 24.10 source
         run: |
+          cd build
           git clone -b istoreos-24.10 --depth 1 https://github.com/istoreos/istoreos.git istoreos
           cd istoreos
           ./scripts/feeds update -a
@@ -34,18 +35,18 @@ jobs:
 
       - name: Configure target (EdgePi E87N)
         run: |
-          cd istoreos
-          cp ../build/e87n.config .config
+          cd build/istoreos
+          cp ../e87n.config .config
           make defconfig
 
       - name: Show selected packages
         run: |
-          cd istoreos
+          cd build/istoreos
           grep -E '^CONFIG_PACKAGE_luci-app-' .config | sort
 
       - name: Build firmware
         run: |
-          cd istoreos
+          cd build/istoreos
           make -j$(nproc) V=s 2>&1 | tee /tmp/build.log
 
       - name: Upload firmware artifacts
@@ -54,7 +55,18 @@ jobs:
         with:
           name: e87n-istoreos-firmware
           path: |
-            istoreos/bin/targets/mediatek/filogic/*sysupgrade*.bin
-            istoreos/bin/targets/mediatek/filogic/*.itb
-            istoreos/bin/targets/mediatek/filogic/*.bin
+            build/istoreos/bin/targets/mediatek/filogic/*sysupgrade*.bin
+            build/istoreos/bin/targets/mediatek/filogic/*.itb
+            build/istoreos/bin/targets/mediatek/filogic/*.bin
           retention-days: 14
+
+      - name: Upload build logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            /tmp/build.log
+            build/istoreos/logs/
+            build/istoreos/build_dir/target-*/linux-*/quilt.log
+          retention-days: 7
