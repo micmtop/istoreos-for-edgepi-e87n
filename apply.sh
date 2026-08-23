@@ -62,4 +62,20 @@ with open(p, 'w') as f:
 print("E87N network block inserted")
 PYEOF
 
+echo "==> [5/5] Set new MT7987 kernel symbols so kconfig does not prompt"
+FCFG="$MT/filogic/config-6.6"
+mkdir -p "$(dirname "$FCFG")"
+# These symbols are added by our MT7987 patches and are NOT in the stock
+# filogic config fragment, so OpenWrt's kernel syncconfig would ask for them
+# interactively (CI has no tty -> "syncconfig ... Error 1"). Set them here.
+for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y; do
+  NAME="${SYM%%=*}"
+  if ! grep -q "^${NAME}=" "$FCFG" 2>/dev/null; then
+    echo "$SYM" >> "$FCFG"
+    echo "appended $SYM to $FCFG"
+  else
+    echo "$FCFG already defines $NAME"
+  fi
+done
+
 echo "==> done"
