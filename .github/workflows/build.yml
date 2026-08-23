@@ -75,7 +75,10 @@ jobs:
           cd build/istoreos
           echo "=== disk before build ==="
           df -h
-          make -j$(nproc) V=s 2>&1 | tee /tmp/build.log
+          # Cap parallelism: full -j$(nproc) on the low-memory GitHub runner
+          # tends to OOM / run out of disk mid-build (run5/run6 failed here
+          # even though the sources were identical to the successful run4).
+          make -j2 V=s 2>&1 | tee /tmp/build.log
           echo "=== disk after build ==="
           df -h
 
