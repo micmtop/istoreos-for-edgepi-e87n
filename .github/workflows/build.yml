@@ -1,4 +1,4 @@
-name: Build iStoreOS for EdgePi E87N
+name: E87N Build
 
 on:
   workflow_dispatch:
