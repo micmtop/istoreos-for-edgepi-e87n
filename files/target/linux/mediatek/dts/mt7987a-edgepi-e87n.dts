@@ -1,0 +1,247 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+
+/dts-v1/;
+#include "mt7987a.dtsi"
+#include <dt-bindings/input/input.h>
+
+/ {
+        model = "EdgePi E87N";
+        compatible = "edgepi,e87n", "mediatek,mt7987a", "mediatek,mt7987";
+
+        aliases {
+                led-boot = &led_status;
+                led-failsafe = &led_status;
+                led-upgrade = &led_status;
+                serial0 = &uart0;
+        };
+
+        chosen {
+                bootargs = "earlycon=uart8250,mmio32,0x11000000 \
+                            root=PARTLABEL=rootfs rootwait pci=pcie_bus_perf";
+                stdout-path = "serial0:115200n8";
+        };
+
+        gpio-keys {
+                compatible = "gpio-keys";
+
+                button-reset {
+                        label = "reset";
+                        linux,code = <KEY_RESTART>;
+                        gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+                        debounce-interval = <10>;
+                };
+
+                button-wps {
+                        label = "wps";
+                        linux,code = <KEY_WPS_BUTTON>;
+                        gpios = <&pio 0 GPIO_ACTIVE_LOW>;
+                        debounce-interval = <10>;
+                };
+        };
+
+        leds {
+                compatible = "gpio-leds";
+
+                led_status: led-3 {
+                        label = "amber:status";
+                        gpios = <&pio 3 GPIO_ACTIVE_LOW>;
+                };
+
+                led_power: led-4 {
+                        label = "green:power";
+                        gpios = <&pio 4 GPIO_ACTIVE_LOW>;
+                };
+        };
+
+        reg_3p3v: regulator-3p3v {
+                compatible = "regulator-fixed";
+                regulator-name = "fixed-3.3V";
+                regulator-min-microvolt = <3300000>;
+                regulator-max-microvolt = <3300000>;
+                regulator-boot-on;
+                regulator-always-on;
+        };
+
+        reg_usb_5v: regulator-usb-5v {
+                compatible = "regulator-fixed";
+                regulator-name = "usb-5v";
+                regulator-max-microvolt = <5000000>;
+                regulator-min-microvolt = <5000000>;
+                regulator-boot-on;
+                regulator-always-on;
+        };
+};
+
+&eth {
+        status = "okay";
+};
+
+&fan {
+        pwms = <&pwm 1 50000 0>;
+        status = "okay";
+};
+
+&gmac0 {
+        phy-mode = "2500base-x";
+        phy-handle = <&phy3>;
+        status = "okay";
+};
+
+&gmac1 {
+        phy-mode = "internal";
+        phy-handle = <&phy15>;
+        status = "okay";
+};
+
+&mdio {
+        /* external 2.5G RTL8221 PHY, eth0/LAN */
+        phy3: phy@3 {
+                compatible = "ethernet-phy-ieee802.3-c45";
+                reg = <3>;
+                reset-gpios = <&pio 42 GPIO_ACTIVE_LOW>;
+                reset-assert-us = <100000>;
+                reset-deassert-us = <100000>;
+                interrupt-parent = <&pio>;
+                interrupts = <41 IRQ_TYPE_LEVEL_LOW>;
+                realtek,aldps-enable;
+        };
+
+        /* built-in 2.5G PHY, eth1/WAN */
+        phy15: phy@15 {
+                compatible = "ethernet-phy-ieee802.3-c45";
+                reg = <15>;
+                phy-mode = "internal";
+                pinctrl-names = "i2p5gbe-led";
+                pinctrl-0 = <&i2p5gbe_led0_pins>;
+        };
+};
+
+&mmc0 {
+        pinctrl-names = "default", "state_uhs";
+        pinctrl-0 = <&mmc_pins_default>;
+        pinctrl-1 = <&mmc_pins_uhs>;
+        bus-width = <8>;
+        max-frequency = <48000000>;
+        cap-mmc-highspeed;
+        vmmc-supply = <&reg_3p3v>;
+        non-removable;
+        status = "okay";
+
+        card@0 {
+                compatible = "mmc-card";
+                reg = <0>;
+
+                block {
+                        compatible = "block-device";
+
+                        partitions {
+                                block-partition-factory {
+                                        partname = "factory";
+
+                                        nvmem-layout {
+                                                compatible = "fixed-layout";
+                                                #address-cells = <1>;
+                                                #size-cells = <1>;
+
+                                                eeprom_factory_0: eeprom@0 {
+                                                        reg = <0x0 0x1e00>;
+                                                };
+
+                                                macaddr_factory_24: macaddr@24 {
+                                                        reg = <0x24 0x6>;
+                                                };
+
+                                                macaddr_factory_2a: macaddr@2a {
+                                                        reg = <0x2a 0x6>;
+                                                };
+                                        };
+                                };
+                        };
+                };
+        };
+};
+
+&pcie0 {
+        pinctrl-names = "default";
+        pinctrl-0 = <&pcie0_pins>;
+        reset-gpios = <&pio 36 GPIO_ACTIVE_HIGH>;
+        status = "okay";
+
+        pcie@0,0 {
+                reg = <0x0000 0 0 0 0>;
+                #address-cells = <3>;
+                #size-cells = <2>;
+                device_type = "pci";
+
+                mt7992@0,0 {
+                        compatible = "mediatek,mt76";
+                        reg = <0x0000 0 0 0 0>;
+
+                        nvmem-cells = <&eeprom_factory_0>;
+                        nvmem-cell-names = "eeprom";
+
+                        #address-cells = <1>;
+                        #size-cells = <0>;
+
+                        ieee80211-freq-limit = <2400000 2500000>,
+                                               <5170000 5835000>;
+                };
+        };
+};
+
+/* SPI LCD (fb_nv3007): reset=GPIO10, dc=GPIO11 (reading from stock DTB) */
+&spi2 {
+        status = "okay";
+        pinctrl-names = "default";
+        pinctrl-0 = <&spi2_flash_pins>;
+
+        display@0 {
+                compatible = "newvisionu,nv3007";
+                reg = <0>;
+                regwidth = <8>;
+                buswidth = <8>;
+                height = <428>;
+                width = <142>;
+                fps = <100>;
+                rotate = <270>;  /* matches stock OEM DTB 0x10e ; native portrait */
+                reset-gpios = <&pio 10 GPIO_ACTIVE_LOW>;
+                dc-gpios = <&pio 11 GPIO_ACTIVE_HIGH>;
+                /* 52MHz: matches the stock/OEM DTB and the known-good
+                 * display state. Lowering to 20MHz was a wrong attempt to
+                 * "fix" a black screen that was actually caused by the init
+                 * sequence, not the SPI clock. Keep OEM's 0x3197500. */
+                spi-max-frequency = <52000000>;
+                status = "okay";
+        };
+};
+
+&pio {
+        pwm_fan_pins: pwm-fan-pins {
+                mux {
+                        function = "pwm";
+                        groups = "pwm1_0";
+                };
+        };
+};
+
+&pwm {
+        status = "okay";
+        pinctrl-names = "default";
+        pinctrl-0 = <&pwm_fan_pins>;
+};
+
+&ssusb {
+        status = "okay";
+        vusb33-supply = <&reg_3p3v>;
+        vbus-supply = <&reg_usb_5v>;
+};
+
+&tphyu3port0 {
+        status = "okay";
+};
+
+&uart0 {
+        pinctrl-names = "default";
+        pinctrl-0 = <&uart0_pins>;
+        status = "okay";
+};
