@@ -59,11 +59,12 @@ jobs:
 
       - name: Prepare kernel (apply MT7987 patches via quilt)
         run: |
+          set -o pipefail
           cd build/istoreos
           make target/linux/prepare V=s 2>&1 | tee /tmp/kernel-prepare.log
           echo "=== quilt log tail ==="
           find build_dir -name "quilt.log" -exec tail -n 40 {} \; 2>/dev/null || true
-          if grep -qE "Patch .* does not apply|Failed to apply|quilt.*ERROR|Error:" /tmp/kernel-prepare.log; then
+          if grep -qE "Patch .* does not apply|Failed to apply|Patch failed|Hunk #.* FAILED|FAILED at|saving rejects|quilt.*ERROR|Error:" /tmp/kernel-prepare.log; then
             echo "FATAL: kernel patch application failed"
             exit 1
           fi

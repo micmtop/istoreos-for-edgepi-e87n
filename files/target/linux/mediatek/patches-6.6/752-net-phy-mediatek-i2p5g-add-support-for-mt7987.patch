@@ -1,11 +1,23 @@
 --- a/drivers/net/phy/mediatek/mtk-2p5ge.c
 +++ b/drivers/net/phy/mediatek/mtk-2p5ge.c
-@@ -12,13 +12,77 @@
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: GPL-2.0+
+ #include <linux/bitfield.h>
+ #include <linux/firmware.h>
++#include <linux/iopoll.h>
+ #include <linux/module.h>
+ #include <linux/nvmem-consumer.h>
+ #include <linux/of_address.h>
+@@ -12,19 +13,82 @@
  
  #include "mtk.h"
  
 +#define MTK_2P5GPHY_ID_MT7987	(0x00339c91)
  #define MTK_2P5GPHY_ID_MT7988	(0x00339c11)
+ 
+ #define MTK_PHY_PAGE_EXTENDED_1		0x0001
+ #define MTK_PHY_AUX_CTRL_AND_STATUS	0x14
+ #define   MTK_PHY_ENABLE_DOWNSHIFT	BIT(4)
  
 +#define MT7987_2P5GE_PMB_FW		"mediatek/mt7987/i2p5ge-phy-pmb.bin"
 +#define MT7987_2P5GE_PMB_FW_SIZE	(0x18000)
@@ -15,6 +27,10 @@
 +
  #define MT7988_2P5GE_PMB_FW		"mediatek/mt7988/i2p5ge-phy-pmb.bin"
  #define MT7988_2P5GE_PMB_FW_SIZE	(0x20000)
+ #define MT7988_2P5GE_PMB_FW_BASE	(0x0f100000)
+ #define MT7988_2P5GE_PMB_FW_LEN		(0x20000)
+ #define MT7988_2P5GE_MD32_EN_CFG_BASE	(0x0f0f0018)
+ #define MT7988_2P5GE_MD32_EN_CFG_LEN	(0x20)
 +
 +#define MTK_2P5GPHY_PMD_REG_BASE	(0x0f010000)
 +#define MTK_2P5GPHY_PMD_REG_LEN		(0x210)
@@ -63,22 +79,19 @@
 +
 +#define MTK_2P5GPHY_MCU_CSR_BASE	(0x0f0f0000)
 +#define MTK_2P5GPHY_MCU_CSR_LEN		(0x20)
- #define MD32_EN_CFG			(0x18)
  #define   MD32_EN			BIT(0)
- 
++#define MD32_EN_CFG			(0x18)
++
 +#define MTK_2P5GPHY_PMB_FW_BASE		(0x0f100000)
-+//#define MTK_2P5GPHY_PMB_FW_LEN		MT7988_2P5GE_PMB_FW_SIZE
 +
 +#define MTK_2P5GPHY_APB_BASE		(0x11c30000)
 +#define MTK_2P5GPHY_APB_LEN		(0x9c)
 +#define SW_RESET			(0x94)
 +#define   MD32_RESTART_EN_CLEAR		BIT(9)
-+
-+
+ 
  #define BASE100T_STATUS_EXTEND		(0x10)
  #define BASE1000T_STATUS_EXTEND		(0x11)
- #define EXTEND_CTRL_AND_STATUS		(0x16)
-@@ -31,6 +95,14 @@
+@@ -37,6 +101,14 @@
  #define MTK_PHY_LPI_PCS_DSP_CTRL		(0x121)
  #define   MTK_PHY_LPI_SIG_EN_LO_THRESH100_MASK	GENMASK(12, 8)
  
@@ -90,10 +103,10 @@
 +#define   MTK_PHY_MASTER_FORCE_SPEED_SEL_EN	BIT(7)
 +#define   MTK_PHY_MASTER_FORCE_SPEED_SEL_MASK	GENMASK(6, 0)
 +
- #define MTK_PHY_HOST_CMD1		0x800e
- #define MTK_PHY_HOST_CMD2		0x800f
  /* Registers on Token Ring debug nodes */
-@@ -48,7 +120,249 @@ enum {
+ /* ch_addr = 0x0, node_addr = 0xf, data_addr = 0x3c */
+ #define AUTO_NP_10XEN				BIT(6)
+@@ -53,7 +125,249 @@ enum {
  	PHY_AUX_SPD_2500,
  };
  
@@ -158,7 +171,7 @@
 +
 +	pmb_addr = ioremap(MTK_2P5GPHY_PMB_FW_BASE, MT7987_2P5GE_PMB_FW_SIZE);
 +	if (!pmb_addr) {
-+		return -ENOMEM;
++		ret = -ENOMEM;
 +		goto free_mcu_csr;
 +	}
 +
@@ -343,8 +356,8 @@
 +static int mt7988_2p5ge_phy_load_fw(struct phy_device *phydev)
  {
  	struct mtk_i2p5ge_phy_priv *priv = phydev->priv;
- 	void __iomem *mcu_csr_base, *pmb_addr;
-@@ -135,7 +449,20 @@ static int mt798x_2p5ge_phy_config_init(
+ 	void __iomem *md32_en_cfg_base, *pmb_addr;
+@@ -138,7 +452,20 @@ static int mt798x_2p5ge_phy_config_init(struct phy_device *phydev)
  	if (phydev->interface != PHY_INTERFACE_MODE_INTERNAL)
  		return -ENODEV;
  
@@ -366,7 +379,7 @@
  	if (ret < 0)
  		return ret;
  
-@@ -293,6 +620,7 @@ static int mt798x_2p5ge_phy_probe(struct
+@@ -380,6 +707,7 @@ static int mt798x_2p5ge_phy_probe(struct phy_device *phydev)
  		return -ENOMEM;
  
  	switch (phydev->drv->phy_id) {
@@ -374,10 +387,11 @@
  	case MTK_2P5GPHY_ID_MT7988:
  		/* The original hardware only sets MDIO_DEVS_PMAPMD */
  		phydev->c45_ids.mmds_present |= MDIO_DEVS_PCS |
-@@ -312,6 +640,20 @@ static int mt798x_2p5ge_phy_probe(struct
+@@ -400,6 +728,20 @@ static int mt798x_2p5ge_phy_probe(struct phy_device *phydev)
+ }
  
  static struct phy_driver mtk_2p5gephy_driver[] = {
- 	{
++	{
 +		PHY_ID_MATCH_MODEL(MTK_2P5GPHY_ID_MT7987),
 +		.name = "MediaTek MT7987 2.5GbE PHY",
 +		.probe = mt798x_2p5ge_phy_probe,
@@ -391,7 +405,6 @@
 +		.read_page = mtk_phy_read_page,
 +		.write_page = mtk_phy_write_page,
 +	},
-+	{
+ 	{
  		PHY_ID_MATCH_MODEL(MTK_2P5GPHY_ID_MT7988),
  		.name = "MediaTek MT7988 2.5GbE PHY",
- 		.probe = mt798x_2p5ge_phy_probe,
