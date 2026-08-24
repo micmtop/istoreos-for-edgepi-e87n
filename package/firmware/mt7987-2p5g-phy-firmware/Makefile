@@ -19,6 +19,10 @@ define Package/mt7987-2p5g-phy-firmware/description
   mtk-2p5ge driver so the WAN (gmac1/eth1) port can train the link.
 endef
 
+# Pure data package: no source to build/compile.
+define Build/Compile
+endef
+
 define Package/mt7987-2p5g-phy-firmware/install
 	$(INSTALL_DIR) $(1)/lib/firmware/mediatek/mt7987
 	$(INSTALL_DATA) \
