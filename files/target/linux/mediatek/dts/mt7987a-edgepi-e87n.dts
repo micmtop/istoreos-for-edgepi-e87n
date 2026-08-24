@@ -16,8 +16,8 @@
         };
 
         chosen {
-                bootargs = "earlycon=uart8250,mmio32,0x11000000 \
-                            root=PARTLABEL=rootfs rootwait pci=pcie_bus_perf";
+                bootargs = "console=ttyS0,115200n1 fbcon=map:off fbcon=disable \
+                            root=PARTLABEL=rootfs rootwait rootfstype=squashfs,f2fs";
                 stdout-path = "serial0:115200n8";
         };
 
@@ -77,8 +77,12 @@
 };
 
 &fan {
-        pwms = <&pwm 1 50000 0>;
-        status = "okay";
+	cooling-levels = <0 10 20 30 40 50 60 70 80 90 100 110 120
+			  130 140 150 160 170 180 190 200 210 220 240 255>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_fan_pins>;
+	pwms = <&pwm 1 50000 0>;
+	status = "okay";
 };
 
 &gmac0 {
@@ -104,6 +108,7 @@
                 interrupt-parent = <&pio>;
                 interrupts = <41 IRQ_TYPE_LEVEL_LOW>;
                 realtek,aldps-enable;
+                realtek,led-link-select = <0xa7 0xa7 0x00>;
         };
 
         /* built-in 2.5G PHY, eth1/WAN */
@@ -226,8 +231,6 @@
 
 &pwm {
         status = "okay";
-        pinctrl-names = "default";
-        pinctrl-0 = <&pwm_fan_pins>;
 };
 
 &ssusb {

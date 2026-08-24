@@ -19,6 +19,15 @@ echo "==> [2/4] Copy MT7987 kernel patches into patches-6.6"
 mkdir -p "$MT/patches-6.6"
 cp -f "$ROOT"/files/target/linux/mediatek/patches-6.6/*.patch "$MT/patches-6.6/"
 
+echo "==> [2.5/4] Copy custom packages"
+mkdir -p "$SRC/package"
+if [ -d "$ROOT/package/firmware/mt7987-2p5g-phy-firmware" ]; then
+  cp -rf "$ROOT/package/firmware/mt7987-2p5g-phy-firmware" "$SRC/package/"
+  echo "copied mt7987-2p5g-phy-firmware package"
+else
+  echo "WARN: mt7987-2p5g-phy-firmware package not found, skipping"
+fi
+
 echo "==> [3/4] Append E87N device definition to filogic.mk"
 FILO="$MT/image/filogic.mk"
 sed -i '/# ==== E87N start ====/,/# ==== E87N end ====/d' "$FILO"
@@ -30,7 +39,7 @@ define Device/edgepi_e87n
   DEVICE_MODEL := E87N
   DEVICE_DTS := mt7987a-edgepi-e87n
   DEVICE_DTS_DIR := ../dts
-  DEVICE_PACKAGES := kmod-hwmon-pwmfan kmod-usb3 f2fsck mkf2fs
+  DEVICE_PACKAGES := kmod-hwmon-pwmfan kmod-usb3 f2fsck mkf2fs mt7987-2p5g-phy-firmware
   KERNEL_LOADADDR := 0x40000000
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
   BOARD_NAME := edgepi,e87n
@@ -68,7 +77,7 @@ mkdir -p "$(dirname "$FCFG")"
 # These symbols are added by our MT7987 patches and are NOT in the stock
 # filogic config fragment, so OpenWrt's kernel syncconfig would ask for them
 # interactively (CI has no tty -> "syncconfig ... Error 1"). Set them here.
-for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y; do
+for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y CONFIG_FB=y CONFIG_FB_TFT=y CONFIG_FB_TFT_NV3007=y; do
   NAME="${SYM%%=*}"
   if ! grep -q "^${NAME}=" "$FCFG" 2>/dev/null; then
     echo "$SYM" >> "$FCFG"
