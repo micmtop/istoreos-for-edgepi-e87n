@@ -1,13 +1,12 @@
 --- a/drivers/cpufreq/mediatek-cpufreq.c
 +++ b/drivers/cpufreq/mediatek-cpufreq.c
-@@ -781,6 +781,12 @@ static const struct mtk_cpufreq_platform
+@@ -781,6 +781,11 @@ static const struct mtk_cpufreq_platform
  	.ccifreq_supported = false,
  };
  
 +static const struct mtk_cpufreq_platform_data mt7987_platform_data = {
 +	.proc_max_volt = 1023000,
 +	.ccifreq_supported = false,
-+	.proc_fixed_volt = true,
 +};
 +
  static const struct mtk_cpufreq_platform_data mt7988_platform_data = {
