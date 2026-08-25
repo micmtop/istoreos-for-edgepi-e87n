@@ -46,6 +46,7 @@ jobs:
       - name: Clone iStoreOS 24.10 source
         run: |
           cd build
+          rm -rf istoreos
           git clone -b istoreos-24.10 --depth 1 https://github.com/istoreos/istoreos.git istoreos
           cd istoreos
           ./scripts/feeds update -a
