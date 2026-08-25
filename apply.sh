@@ -87,4 +87,35 @@ for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_M
   fi
 done
 
+echo "==> [6/6] Force FB symbols into the generated kernel .config"
+# The kernel config fragment above is NOT reliable for enabling FB_TFT_NV3007
+# (empirically the built kernel came out with fbdev disabled in run 32791064989
+# even though the merge analysis said FB=y). Guarantee the symbols by injecting
+# them into $(LINUX_DIR)/.config.set right before OpenWrt copies it to .config.
+# kconfig's conf uses the LAST occurrence of a symbol in .config, so appending
+# CONFIG_FB_TFT_NV3007=y here wins even if a "# ... is not set" line precedes it.
+KDM="$SRC/include/kernel-defaults.mk"
+python3 - "$KDM" <<'PYEOF'
+import sys
+p = sys.argv[1]
+with open(p) as f:
+    s = f.read()
+if 'CONFIG_FB_TFT_NV3007=y" >> $(LINUX_DIR)/.config.set' in s:
+    print("FB injection already present")
+    sys.exit(0)
+anchor = "\t$(call Kernel/SetNoInitramfs)\n"
+if anchor not in s:
+    print("ERROR: cannot find SetNoInitramfs anchor in kernel-defaults.mk",
+          file=sys.stderr)
+    sys.exit(1)
+addition = (anchor +
+            '\techo "CONFIG_FB=y" >> $(LINUX_DIR)/.config.set\n' +
+            '\techo "CONFIG_FB_TFT=y" >> $(LINUX_DIR)/.config.set\n' +
+            '\techo "CONFIG_FB_TFT_NV3007=y" >> $(LINUX_DIR)/.config.set\n')
+s = s.replace(anchor, addition, 1)
+with open(p, 'w') as f:
+    f.write(s)
+print("FB injection added to kernel-defaults.mk")
+PYEOF
+
 echo "==> done"

@@ -117,6 +117,15 @@ jobs:
             echo "FATAL: no E87N sysupgrade image produced"
             exit 1
           fi
+          echo "=== kernel .config FB symbols (ground truth) ==="
+          KCFG=$(ls build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/.config 2>/dev/null | head -1)
+          if [ -n "$KCFG" ]; then
+            grep -E '^CONFIG_(FB|FB_TFT|FB_TFT_NV3007|SPI|STAGING|GPIOLIB)=' "$KCFG" || true
+            echo "--- fbtft builtin? ---"
+            grep -i fbtft build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/.config || echo "NO fbtft in kernel .config"
+          else
+            echo "kernel .config not found"
+          fi
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
@@ -142,4 +151,6 @@ jobs:
             /tmp/kernel-prepare.log
             build/istoreos/logs/
             build/istoreos/build_dir/target-*/linux-*/quilt.log
+            build/istoreos/build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/.config
+            build/istoreos/build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/.config.set
           retention-days: 7
