@@ -28,6 +28,17 @@ else
   echo "WARN: mt7987-2p5g-phy-firmware package not found, skipping"
 fi
 
+echo "==> [2.6/4] Override istoreos-boot.sh (E87N overlay fix)"
+# iStoreOS stock code uses partition 3 as overlay. On E87N, partition 3 is the
+# FIP / U-Boot partition, so the system overwrote U-Boot on every boot.
+# Use fstools rootfs_data instead.
+if [ -f "$ROOT/files/lib/functions/istoreos-boot.sh" ]; then
+  cp -f "$ROOT/files/lib/functions/istoreos-boot.sh" "$SRC/package/base-files/files/lib/functions/istoreos-boot.sh"
+  echo "copied istoreos-boot.sh overlay fix"
+else
+  echo "WARN: istoreos-boot.sh fix not found, skipping"
+fi
+
 echo "==> [3/4] Append E87N device definition to filogic.mk"
 FILO="$MT/image/filogic.mk"
 sed -i '/# ==== E87N start ====/,/# ==== E87N end ====/d' "$FILO"
