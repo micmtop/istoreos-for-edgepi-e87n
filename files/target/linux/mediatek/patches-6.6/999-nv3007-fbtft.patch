@@ -2,7 +2,7 @@ diff --git a/drivers/staging/fbtft/fb_nv3007.c b/drivers/staging/fbtft/fb_nv3007
 new file mode 100644
 --- /dev/null
 +++ b/drivers/staging/fbtft/fb_nv3007.c
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,235 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * fbtft driver for the NewVision NV3007 142x428 SPI TFT panel
@@ -30,46 +30,52 @@ new file mode 100644
 +	/* Enter vendor-specific configuration mode */
 +	write_reg(par, 0xFF, 0xA5);
 +
-+	/* ==== Vendor specific configuration ==== */
++	/* ==== Vendor specific configuration ====
++	 * Whole sequence from TJ-Lab / Lovyan GFX Panel_NV3007.hpp
++	 * (N279-1428KIWIG01-C1, 2.79" 142x428 NV3007, verified working).
++	 * Do NOT mix values from other NV3007 variants (ESPHome etc):
++	 * NV3007 init differs per panel vendor. */
 +	write_reg(par, 0x9A, 0x08);
 +	write_reg(par, 0x9B, 0x08);
 +	write_reg(par, 0x9C, 0xB0);
-+	write_reg(par, 0x9D, 0x17);
-+	write_reg(par, 0x9E, 0xC2);
-+	write_reg(par, 0x8F, 0x22, 0x04);
++	write_reg(par, 0x9D, 0x16);
++	write_reg(par, 0x9E, 0xC4);
++	write_reg(par, 0x8F, 0x55, 0x04);
 +	write_reg(par, 0x84, 0x90);
 +	write_reg(par, 0x83, 0x7B);
-+	write_reg(par, 0x85, 0x4F);
-+	write_reg(par, 0x6E, 0x0F);
-+	write_reg(par, 0x7E, 0x0F);
++	write_reg(par, 0x85, 0x33);
++
++	/* ==== Gamma (TJ-Lab values) ==== */
 +	write_reg(par, 0x60, 0x00);
 +	write_reg(par, 0x70, 0x00);
-+	write_reg(par, 0x6D, 0x39);
-+	write_reg(par, 0x7D, 0x31);
-+	write_reg(par, 0x61, 0x0A);
-+	write_reg(par, 0x71, 0x0A);
-+	write_reg(par, 0x6C, 0x35);
++	write_reg(par, 0x61, 0x02);
++	write_reg(par, 0x71, 0x02);
++	write_reg(par, 0x62, 0x04);
++	write_reg(par, 0x72, 0x04);
++	write_reg(par, 0x6C, 0x29);
 +	write_reg(par, 0x7C, 0x29);
-+	write_reg(par, 0x62, 0x0F);
-+	write_reg(par, 0x72, 0x0F);
-+	write_reg(par, 0x68, 0x4F);
-+	write_reg(par, 0x78, 0x45);
-+	write_reg(par, 0x66, 0x33);
-+	write_reg(par, 0x76, 0x33);
-+	write_reg(par, 0x6B, 0x14);
-+	write_reg(par, 0x7B, 0x14);
-+	write_reg(par, 0x63, 0x09);
-+	write_reg(par, 0x73, 0x09);
++	write_reg(par, 0x6D, 0x31);
++	write_reg(par, 0x7D, 0x31);
++	write_reg(par, 0x6E, 0x0F);
++	write_reg(par, 0x7E, 0x0F);
++	write_reg(par, 0x66, 0x21);
++	write_reg(par, 0x76, 0x21);
++	write_reg(par, 0x68, 0x3A);
++	write_reg(par, 0x78, 0x3A);
++	write_reg(par, 0x63, 0x07);
++	write_reg(par, 0x73, 0x07);
++	write_reg(par, 0x64, 0x05);
++	write_reg(par, 0x74, 0x05);
++	write_reg(par, 0x65, 0x02);
++	write_reg(par, 0x75, 0x02);
++	write_reg(par, 0x67, 0x23);
++	write_reg(par, 0x77, 0x23);
++	write_reg(par, 0x69, 0x08);
++	write_reg(par, 0x79, 0x08);
 +	write_reg(par, 0x6A, 0x13);
-+	write_reg(par, 0x7A, 0x16);
-+	write_reg(par, 0x64, 0x08);
-+	write_reg(par, 0x74, 0x08);
-+	write_reg(par, 0x69, 0x07);
-+	write_reg(par, 0x79, 0x0D);
-+	write_reg(par, 0x65, 0x05);
-+	write_reg(par, 0x75, 0x05);
-+	write_reg(par, 0x67, 0x33);
-+	write_reg(par, 0x77, 0x33);
++	write_reg(par, 0x7A, 0x13);
++	write_reg(par, 0x6B, 0x13);
++	write_reg(par, 0x7B, 0x13);
 +	write_reg(par, 0x6F, 0x00);
 +	write_reg(par, 0x7F, 0x00);
 +
@@ -163,14 +169,14 @@ new file mode 100644
 +	write_reg(par, 0xFF, 0x00);
 +
 +	/* ==== Standard MIPI / panel control ==== */
++	write_reg(par, 0x3A, 0x05); /* RGB565 (TJ-Lab value) */
 +	write_reg(par, 0x11); /* sleep out */
-+	mdelay(120);
++	mdelay(200);
 +	/* MADCTL = 0x00: native portrait (no scan swap).  Rotations are
 +	 * handled in software by fbtft, and set_addr_win() applies the
 +	 * panel's CGRAM offsets (col 12, row 10).  Using 0x00 avoids the
 +	 * invalid 0x70 direction that garbled the picture. */
 +	write_reg(par, 0x36, 0x00);
-+	write_reg(par, 0x3A, 0x55); /* RGB565 */
 +	/* window: 142x428 (col 12..153, row 10..437) with CGRAM offset
 +	 * col=12, row=10 (matches TFT_eSPI NV3007 setup). */
 +	write_reg(par, 0x2A, 0x00, 0x0C, 0x00, 0x99);

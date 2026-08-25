@@ -39,7 +39,7 @@ define Device/edgepi_e87n
   DEVICE_MODEL := E87N
   DEVICE_DTS := mt7987a-edgepi-e87n
   DEVICE_DTS_DIR := ../dts
-  DEVICE_PACKAGES := kmod-hwmon-pwmfan kmod-usb3 f2fsck mkf2fs mt7987-2p5g-phy-firmware
+  DEVICE_PACKAGES := kmod-hwmon-pwmfan kmod-usb3 f2fsck mkf2fs mt7987-2p5g-phy-firmware kmod-phy-airoha-en8811h
   KERNEL_LOADADDR := 0x40000000
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
   BOARD_NAME := edgepi,e87n
