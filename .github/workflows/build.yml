@@ -142,11 +142,24 @@ jobs:
           echo "=== kernel .config FB symbols (ground truth) ==="
           KCFG=$(ls build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/.config 2>/dev/null | head -1)
           if [ -n "$KCFG" ]; then
-            grep -E '^CONFIG_(FB|FB_TFT|FB_TFT_NV3007|SPI|STAGING|GPIOLIB)=' "$KCFG" || true
-            echo "--- fbtft builtin? ---"
-            grep -i fbtft build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/.config || echo "NO fbtft in kernel .config"
+            grep -E '^CONFIG_(STAGING|FB|FB_DEVICE|FB_TFT|FB_TFT_NV3007|SPI|GPIOLIB)=' "$KCFG" || true
+            echo "=== hard gate: NV3007 must be enabled and compiled ==="
+            NVCFG=$(grep '^CONFIG_FB_TFT_NV3007=' "$KCFG" | head -1)
+            if [ "$NVCFG" = "CONFIG_FB_TFT_NV3007=y" ]; then
+              echo "NV3007 CONFIG OK (=y)"
+            else
+              echo "FATAL: CONFIG_FB_TFT_NV3007 != y in kernel .config (current: '$NVCFG')"
+              exit 1
+            fi
+            if ls build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/drivers/staging/fbtft/fb_nv3007.o >/dev/null 2>&1; then
+              echo "fb_nv3007.o COMPILED (built-in)"
+            else
+              echo "FATAL: fb_nv3007.o not found - screen driver NOT built"
+              exit 1
+            fi
           else
-            echo "kernel .config not found"
+            echo "FATAL: kernel .config not found"
+            exit 1
           fi
 
       - name: Upload firmware artifacts
