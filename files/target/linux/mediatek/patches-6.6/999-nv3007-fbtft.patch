@@ -237,7 +237,7 @@ new file mode 100644
 +MODULE_AUTHOR("open-source E87N port");
 +MODULE_DESCRIPTION("fbtft driver for NewVision NV3007 SPI LCD");
 +MODULE_LICENSE("GPL v2");
-
++
 diff --git a/drivers/staging/fbtft/Kconfig b/drivers/staging/fbtft/Kconfig
 --- a/drivers/staging/fbtft/Kconfig
 +++ b/drivers/staging/fbtft/Kconfig
