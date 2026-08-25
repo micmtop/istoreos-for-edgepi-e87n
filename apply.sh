@@ -77,7 +77,7 @@ mkdir -p "$(dirname "$FCFG")"
 # These symbols are added by our MT7987 patches and are NOT in the stock
 # filogic config fragment, so OpenWrt's kernel syncconfig would ask for them
 # interactively (CI has no tty -> "syncconfig ... Error 1"). Set them here.
-for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y CONFIG_FB=y CONFIG_FB_TFT=y CONFIG_FB_TFT_NV3007=y; do
+for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y CONFIG_PHY_REALTEK=y CONFIG_FB=y CONFIG_FB_TFT=y CONFIG_FB_TFT_NV3007=y; do
   NAME="${SYM%%=*}"
   if ! grep -q "^${NAME}=" "$FCFG" 2>/dev/null; then
     echo "$SYM" >> "$FCFG"
@@ -109,6 +109,7 @@ if anchor not in s:
           file=sys.stderr)
     sys.exit(1)
 addition = (anchor +
+            '\techo "CONFIG_PHY_REALTEK=y" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_FB=y" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_FB_TFT=y" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_FB_TFT_NV3007=y" >> $(LINUX_DIR)/.config.set\n')
