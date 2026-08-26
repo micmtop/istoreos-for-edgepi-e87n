@@ -39,26 +39,145 @@ else
   echo "WARN: istoreos-boot.sh fix not found, skipping"
 fi
 
-echo "==> [3/4] Append E87N device definition to filogic.mk"
-FILO="$MT/image/filogic.mk"
-sed -i '/# ==== E87N start ====/,/# ==== E87N end ====/d' "$FILO"
-cat >> "$FILO" <<'EOF'
+echo "==> [2.7/4] Patch mount_root for E87N (delegate overlay to fstools)"
+# CRITICAL: preinit PATH puts /usr/sbin before /sbin, so iStoreOS's SHELL
+# mount_root (/usr/sbin/mount_root) shadows fstools' C mount_root
+# (/sbin/mount_root). Only the C implementation creates /dev/rootfs_data on
+# the rootfs partition's free space. Without this patch, the fixed
+# istoreos-boot.sh can never find /dev/rootfs_data and the system boots with
+# NO overlay at all (read-only rootfs). On E87N we delegate the whole overlay
+# mount to the fstools C mount_root (standard OpenWrt behaviour).
+MR="$SRC/package/base-files/files/usr/sbin/mount_root"
+python3 - "$MR" <<'PYEOF'
+import sys
+p = sys.argv[1]
+with open(p) as f:
+    s = f.read()
+if 'E87N: overlay via fstools rootfs_data' in s:
+    print("mount_root E87N delegation already present")
+    sys.exit(0)
+anchor = "\t[ ! -e /rom/note ] && return 0\n\n\tinlog get_overlay_partition || return 1\n"
+if anchor not in s:
+    print("ERROR: mount_root do_mount_overlayfs anchor not found", file=sys.stderr)
+    sys.exit(1)
+addition = (
+    "\t[ ! -e /rom/note ] && return 0\n\n"
+    "\t# E87N FIX: this device has no dedicated overlay partition (p3 = FIP/U-Boot).\n"
+    "\t# iStoreOS shell overlay logic needs /dev/rootfs_data, which is created only\n"
+    "\t# by fstools' C mount_root (/sbin/mount_root). Delegate so fstools creates\n"
+    "\t# and mounts rootfs_data on the rootfs partition's free space (standard\n"
+    "\t# OpenWrt behaviour). Skip delegation in recovery mode.\n"
+    "\tif [ ! -f /.recovery_mode ] && [ -e /sys/block/mmcblk0/mmcblk0p4 ] && \\\n"
+    "\t   [ -e /sys/block/mmcblk0/mmcblk0p5 ] && [ -x /sbin/mount_root ]; then\n"
+    "\t\tlog \"E87N: overlay via fstools rootfs_data, delegating to /sbin/mount_root\"\n"
+    "\t\texec /sbin/mount_root\n"
+    "\tfi\n\n"
+    "\tinlog get_overlay_partition || return 1\n")
+s = s.replace(anchor, addition, 1)
+with open(p, 'w') as f:
+    f.write(s)
+print("mount_root E87N delegation added")
+PYEOF
 
-# ==== E87N start ====
-define Device/edgepi_e87n
-  DEVICE_VENDOR := EdgePi
-  DEVICE_MODEL := E87N
-  DEVICE_DTS := mt7987a-edgepi-e87n
-  DEVICE_DTS_DIR := ../dts
-  DEVICE_PACKAGES := kmod-hwmon-pwmfan kmod-usb3 f2fsck mkf2fs mt7987-2p5g-phy-firmware kmod-phy-airoha-en8811h
-  KERNEL_LOADADDR := 0x40000000
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
-  BOARD_NAME := edgepi,e87n
-  SUPPORTED_DEVICES := edgepi,e87n
-endef
-TARGET_DEVICES += edgepi_e87n
-# ==== E87N end ====
-EOF
+echo "==> [2.8/4] Add E87N emmc upgrade branch to platform.sh"
+# Stock filogic platform.sh routes edgepi,e87n to the default nand_do_upgrade
+# branch, which breaks eMMC partition detection (kernel/rootfs go to the wrong
+# partitions). Add an explicit emmc_do_upgrade branch.
+#
+# NOTE: we do NOT derive CI_ROOTDEV from cmdline.  The E87N DTS sets
+# root=PARTLABEL=rootfs, so `cmdline_get_var root` returns "PARTLABEL=rootfs"
+# and the ${rootdev##*/} / ${rootdev%p[0-9]*} parsing used by the unielec
+# branch yields an empty/non-mmc string -> E87N would be misrouted to
+# nand_do_upgrade.  E87N has exactly one eMMC (mmcblk0); hardcode it.
+PLAT="$MT/filogic/base-files/lib/upgrade/platform.sh"
+mkdir -p "$(dirname "$PLAT")"
+python3 - "$PLAT" <<'PYEOF'
+import sys
+p = sys.argv[1]
+with open(p) as f:
+    s = f.read()
+
+# Patch 1: platform_do_upgrade -> emmc_do_upgrade for E87N
+if 'edgepi,e87n)' not in s:
+    anchor = "\tunielec,u7981-01*)\n"
+    if anchor not in s:
+        print("ERROR: unielec anchor not found in platform.sh", file=sys.stderr)
+        sys.exit(1)
+    addition = ("\tedgepi,e87n)\n"
+                "\t\tCI_ROOTDEV=\"mmcblk0\"\n"
+                "\t\tCI_KERNPART=\"kernel\"\n"
+                "\t\tCI_ROOTPART=\"rootfs\"\n"
+                "\t\temmc_do_upgrade \"$1\"\n"
+                "\t\t;;\n")
+    s = s.replace(anchor, addition + anchor, 1)
+
+# Patch 2: platform_copy_config -> save config to eMMC for E87N.
+# NOTE: '\tubnt,unifi-6-plus)' appears in BOTH platform_do_upgrade and
+# platform_copy_config.  A naive s.replace() with count=1 hits the FIRST
+# occurrence (platform_do_upgrade), silently leaving E87N out of the
+# emmc_copy_config group -> sysupgrade would lose the config on upgrade.
+# Restrict the insertion to the body of platform_copy_config() only.
+# The inserted line must end in '|\'+newline (case-pattern continuation),
+# matching the file's own style; a bare '|' before a newline is not
+# accepted by busybox ash's case parser.
+marker = "platform_copy_config() {"
+if marker not in s:
+    print("ERROR: platform_copy_config() marker not found", file=sys.stderr)
+    sys.exit(1)
+pre, _, post = s.partition(marker)
+if 'edgepi,e87n' not in post.split('esac', 1)[0]:
+    cc_anchor = "\tubnt,unifi-6-plus)\n"
+    if cc_anchor not in post:
+        print("ERROR: copy_config ubnt anchor not found inside platform_copy_config", file=sys.stderr)
+        sys.exit(1)
+    post2 = post.replace(cc_anchor, "\tedgepi,e87n|\\\n" + cc_anchor, 1)
+    s = pre + marker + post2
+    print("platform_copy_config E87N emmc group added")
+else:
+    print("platform_copy_config E87N group already present")
+
+with open(p, 'w') as f:
+    f.write(s)
+print("platform.sh E87N emmc branch + copy_config added")
+PYEOF
+
+echo "==> [3/4] Append E87N device definition to filogic.mk"
+# Python implementation for true idempotency: a naive "sed delete + cat append"
+# accumulates a blank line after every run (the deleted block's leading blank
+# line survives the sed range).  Rebuild the block deterministically instead.
+FILO="$MT/image/filogic.mk"
+python3 - "$FILO" <<'PYEOF'
+import sys, re
+p = sys.argv[1]
+with open(p, encoding='utf-8') as f:
+    s = f.read()
+block = (
+    "\n# ==== E87N start ====\n"
+    "define Device/edgepi_e87n\n"
+    "  DEVICE_VENDOR := EdgePi\n"
+    "  DEVICE_MODEL := E87N\n"
+    "  DEVICE_DTS := mt7987a-edgepi-e87n\n"
+    "  DEVICE_DTS_DIR := ../dts\n"
+    "  DEVICE_PACKAGES := kmod-hwmon-pwmfan kmod-usb3 e2fsprogs f2fsck mkf2fs mt7987-2p5g-phy-firmware kmod-phy-airoha-en8811h\n"
+    "  KERNEL_LOADADDR := 0x40000000\n"
+    "  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata\n"
+    "  BOARD_NAME := edgepi,e87n\n"
+    "  SUPPORTED_DEVICES := edgepi,e87n\n"
+    "endef\n"
+    "TARGET_DEVICES += edgepi_e87n\n"
+    "# ==== E87N end ====\n"
+)
+# Remove ALL existing E87N blocks.  NOTE: plain `.*?` does NOT match newlines
+# in Python regex, so a multi-line block could never be matched -> blocks
+# silently ACCUMULATED on every run instead of being replaced.  Use [\s\S]*?
+# to span lines.  Also collapse runs of blank lines so history cannot accumulate.
+s2 = re.sub(r"# ==== E87N start ====[\s\S]*?# ==== E87N end ====\n", "", s)
+s2 = re.sub(r"\n[ \t]*(?:\n[ \t]*)+", "\n\n", s2)
+s3 = s2.rstrip("\n") + "\n" + block.lstrip("\n")
+with open(p, 'w', encoding='utf-8', newline='\n') as f:
+    f.write(s3)
+print("filogic.mk E87N block (re)appended idempotently")
+PYEOF
 
 echo "==> [4/4] Add E87N network layout to board.d/02_network"
 NET="$MT/filogic/base-files/etc/board.d/02_network"
