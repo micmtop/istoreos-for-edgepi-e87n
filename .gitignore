@@ -1,0 +1,25 @@
+# 运行时/CI 产物
+istoreos/
+dl/
+build_dir/
+staging_dir/
+bin/
+tmp/
+
+# 本地调试与日志
+*.log
+.apply_*.log
+.snap_*.txt
+jobs.json
+runs.json
+run*-job.log
+diag.py
+fetch_runs.py
+show_run*.py
+dl_run*.py
+dl_run*.ps1
+tmp_patch_fix/
+
+# OS 元数据
+.DS_Store
+Thumbs.db

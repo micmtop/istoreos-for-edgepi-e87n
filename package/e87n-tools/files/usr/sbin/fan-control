@@ -1,0 +1,173 @@
+#!/bin/sh
+# E87N 风扇温控守护进程（BusyBox ash）
+# 根据温度按曲线线性插值调节 PWM；或手动固定 PWM / 关闭。
+# 用法: fan-control start|stop|restart|reload
+# 配置: /etc/config/fan（fanctl 修改后发 SIGHUP，本进程热重载曲线/模式）
+
+CONF=/etc/config/fan
+PIDFILE=/var/run/fan-control.pid
+
+uci_get() { uci -q get "fan.global.$1" 2>/dev/null; }
+
+# ---- 自动探测温度与 PWM 路径 ----
+detect_temp() {
+    # 优先 hwmon temp（E87N real source: hwmon0 mdio_bus temp1_input；thermal_zone 驱动异常不可用）
+    for h in /sys/class/hwmon/hwmon*; do
+        [ -f "$h/temp1_input" ] || continue
+        echo "$h/temp1_input"; return
+    done
+    for z in /sys/class/thermal/thermal_zone*; do
+        [ -f "$z/temp" ] || continue
+        echo "$z/temp"; return
+    done
+    echo ""
+}
+
+detect_pwm() {
+    for h in /sys/class/hwmon/hwmon*; do
+        [ -f "$h/pwm1" ] || continue
+        n=$(cat "$h/name" 2>/dev/null)
+        [ "$n" = "pwmfan" ] && { echo "$h/pwm1"; return; }
+    done
+    for h in /sys/class/hwmon/hwmon*; do
+        [ -f "$h/pwm1" ] && { echo "$h/pwm1"; return; }
+    done
+    echo ""
+}
+
+# 读取曲线到临时文件（uci get 输出整行为空格分隔，转成每行一个点）
+dump_curve() {
+    uci -q get fan.global.curve 2>/dev/null | tr -d "'" | tr ' ' '\n' | grep -v '^$' > /tmp/fan-curve.$$
+}
+
+# 按曲线(℃->PWM)线性插值；$1=温度(℃) $2=pwm_max
+calc_pwm() {
+    local t=$1 pwm_max=$2
+    local temp pwm lower_t="" lower_p="" upper_t="" upper_p=""
+    local lnum=0
+    dump_curve
+    while IFS=':' read -r temp pwm; do
+        [ -n "$temp" ] || continue
+        if [ "$t" -ge "$temp" ]; then
+            lower_t=$temp; lower_p=$pwm
+        elif [ -z "$upper_t" ]; then
+            upper_t=$temp; upper_p=$pwm
+        fi
+    done < /tmp/fan-curve.$$
+    rm -f /tmp/fan-curve.$$
+    # 无曲线 -> 0
+    [ -z "$lower_t" ] && [ -z "$upper_t" ] && { echo 0; return; }
+    # 低于最低点
+    [ -z "$lower_t" ] && { echo 0; return; }
+    # 高于最高点
+    [ -z "$upper_t" ] && { echo "${lower_p:-0}"; return; }
+    # 线性插值在 (lower, upper]
+    if [ "$upper_t" -gt "$lower_t" ]; then
+        local denom=$(( upper_t - lower_t ))
+        local pwm_range=$(( upper_p - lower_p ))
+        local p=$(( lower_p + (t - lower_t) * pwm_range / denom ))
+        [ "$p" -lt 0 ] && p=0
+        [ "$p" -gt "$pwm_max" ] && p=$pwm_max
+        echo "$p"; return
+    fi
+    echo "${lower_p:-0}"
+}
+
+do_run() {
+    local temp_path pwm_path divisor pwm_max interval mode manual hysteresis
+    local cur_temp t_c new_pwm last_pwm="" last_temp="" enable_path
+
+    while :; do
+        temp_path=$(uci_get temp_path)
+        pwm_path=$(uci_get pwm_path)
+        divisor=$(uci_get temp_divisor);  divisor="${divisor:-1000}"
+        pwm_max=$(uci_get pwm_max);       pwm_max="${pwm_max:-255}"
+        interval=$(uci_get interval);     interval="${interval:-5}"
+        mode=$(uci_get mode);             mode="${mode:-auto}"
+        manual=$(uci_get manual_pwm);     manual="${manual:-128}"
+        hysteresis=$(uci_get hysteresis); hysteresis="${hysteresis:-3}"
+
+        [ -n "$temp_path" ] || temp_path=$(detect_temp)
+        [ -n "$pwm_path" ]  || pwm_path=$(detect_pwm)
+
+        if [ -z "$temp_path" ] || [ -z "$pwm_path" ]; then
+            logger -t fan-control "missing temp=$temp_path pwm=$pwm_path, retry in ${interval}s"
+            sleep "$interval"; continue
+        fi
+
+        cur_temp=$(tr -d '\n' < "$temp_path" 2>/dev/null)
+        cur_temp=${cur_temp:-0}
+        # 温度单位：divisor=1000 表示 mC，=1 表示已是 ℃
+        if [ "$divisor" = "1" ]; then t_c=$cur_temp; else t_c=$((cur_temp / divisor)); fi
+
+        enable_path="${pwm_path%pwm1}pwm1_enable"
+        new_pwm=0; set_pwm=0
+
+        case "$mode" in
+            off)
+                if [ -f "$enable_path" ] && [ "$(tr -d '\n' < "$enable_path" 2>/dev/null)" != "0" ]; then
+                    echo 0 > "$enable_path" 2>/dev/null
+                fi
+                new_pwm=0; set_pwm=1
+                ;;
+            manual)
+                if [ -f "$enable_path" ] && [ "$(tr -d '\n' < "$enable_path" 2>/dev/null)" != "1" ]; then
+                    echo 1 > "$enable_path" 2>/dev/null
+                fi
+                new_pwm=$manual
+                [ "$new_pwm" -gt "$pwm_max" ] && new_pwm=$pwm_max
+                [ "$new_pwm" -lt 0 ] && new_pwm=0
+                set_pwm=1
+                ;;
+            *)  # auto
+                new_pwm=$(calc_pwm "$t_c" "$pwm_max")
+                # 滞回：温度下探时，只有降到 (last_temp - hysteresis) 以下才允许降档
+                if [ -n "$last_pwm" ] && [ "$new_pwm" -lt "$last_pwm" ]; then
+                    if [ -n "$last_temp" ] && [ "$t_c" -ge $((last_temp - hysteresis)) ]; then
+                        new_pwm=$last_pwm
+                    fi
+                fi
+                if [ -f "$enable_path" ] && [ "$(tr -d '\n' < "$enable_path" 2>/dev/null)" != "1" ]; then
+                    echo 1 > "$enable_path" 2>/dev/null
+                fi
+                set_pwm=1
+                ;;
+        esac
+
+        if [ "$set_pwm" = "1" ] && [ "$new_pwm" != "$last_pwm" ]; then
+            echo "$new_pwm" > "$pwm_path" 2>/dev/null
+            logger -t fan-control "temp=${t_c}C -> pwm=${new_pwm} (mode=$mode)"
+        fi
+
+        last_pwm=$new_pwm
+        last_temp=$t_c
+        sleep "$interval"
+    done
+}
+
+start() {
+    [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null && {
+        echo "fan-control already running (pid $(cat $PIDFILE))"; return 0
+    }
+    do_run &
+    echo $! > "$PIDFILE"
+    echo "fan-control started (pid $(cat $PIDFILE))"
+}
+
+stop() {
+    [ -f "$PIDFILE" ] || { echo "fan-control not running"; return 0; }
+    kill "$(cat "$PIDFILE")" 2>/dev/null
+    rm -f "$PIDFILE"
+    echo "fan-control stopped"
+}
+
+reload() {
+    # 曲线/模式每次循环都从 uci 重读，无需信号；如进程长睡可发 HUP 唤醒（无碍）
+    [ -f "$PIDFILE" ] && kill -CONT "$(cat "$PIDFILE")" 2>/dev/null
+    echo "reload ok"
+}
+
+case "$1" in
+    start|stop|restart|reload) "$1" ;;
+    *) echo "usage: $0 start|stop|restart|reload" ;;
+esac

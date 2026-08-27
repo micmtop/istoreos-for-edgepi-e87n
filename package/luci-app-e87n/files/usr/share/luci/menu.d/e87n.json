@@ -1,0 +1,21 @@
+{
+    "admin/services/e87n": {
+        "title": "风扇与屏幕 (E87N)",
+        "order": 60,
+        "action": {
+            "type": "view",
+            "path": "e87n/overview"
+        },
+        "depends": {
+            "acl": [ "luci-app-e87n" ]
+        }
+    },
+    "admin/system/e87n-display": {
+        "title": "屏幕显示设置 (E87N)",
+        "order": 99,
+        "action": {
+            "type": "view",
+            "path": "e87n/overview"
+        }
+    }
+}

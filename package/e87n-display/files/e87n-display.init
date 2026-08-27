@@ -1,0 +1,55 @@
+#!/bin/sh /etc/rc.common
+# E87N LVGL 屏幕显示服务
+# 依赖: /usr/bin/e87n-display（LVGL 渲染）、/etc/config/e87n-display
+# 读取 UCI: enabled / page(1-4|cycle) / cycle_seconds / custom_text(list)
+START=97
+STOP=12
+
+EXTRA_COMMANDS="status"
+EXTRA_HELP="	status	Show service status"
+
+start() {
+    local enabled page cycle_seconds custom_text args
+    enabled=$(uci -q get e87n-display.global.enabled)
+    [ "$enabled" = "0" ] && { echo "e87n-display disabled"; return 0; }
+
+    [ -c /dev/fb0 ] || { echo "e87n-display: /dev/fb0 not present"; return 1; }
+
+    page=$(uci -q get e87n-display.global.page)
+    page=${page:-1}
+    cycle_seconds=$(uci -q get e87n-display.global.cycle_seconds)
+    cycle_seconds=${cycle_seconds:-10}
+
+    if [ "$page" = "cycle" ]; then
+        args="cycle $cycle_seconds"
+    else
+        case "$page" in
+            1|2|3|4) args="$page" ;;
+            *) echo "e87n-display: invalid page '$page', using 1"; args="1" ;;
+        esac
+    fi
+
+    # 自定义文本行（list）拼接到命令行参数
+    for line in $(uci -q get e87n-display.global.custom_text); do
+        # uci list 输出用单引号包裹，去掉
+        line=${line#\'}; line=${line%\'}
+        [ -n "$line" ] && args="$args '$line'"
+    done
+
+    echo "e87n-display start: $args"
+    /usr/bin/e87n-display $args &
+}
+
+stop() {
+    # 兼容 busybox：pidof 可用，killall 也可用
+    killall e87n-display 2>/dev/null || true
+    # 关机前保留当前背光（由 screen 服务管理）
+}
+
+status() {
+    if pidof e87n-display >/dev/null 2>&1; then
+        echo "e87n-display: running"
+    else
+        echo "e87n-display: stopped"
+    fi
+}

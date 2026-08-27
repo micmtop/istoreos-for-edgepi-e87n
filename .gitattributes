@@ -1,0 +1,15 @@
+# 构建/脚本文件固定 LF 行尾（CI 在 Linux 上执行，CRLF 会破坏 shebang/Makefile）
+* text=auto
+*.sh text eol=lf
+*.init text eol=lf
+Makefile text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.config text eol=lf
+*.mk text eol=lf
+*.cmake text eol=lf
+*.dts text eol=lf
+*.patch text eol=lf
+*.bin binary

@@ -1,0 +1,28 @@
+#!/bin/sh /etc/rc.common
+# E87N 风扇温控服务（自动曲线 / 手动 PWM / 关闭）
+# 依赖: /usr/sbin/fan-control（守护循环）、/etc/config/fan
+START=99
+STOP=10
+
+start() {
+    # 守护进程自身会探测 pwm 路径并置 pwm1_enable；这里只确保服务拉起
+    if [ "$(uci -q get fan.global.enabled)" != "0" ]; then
+        /usr/sbin/fan-control start
+    else
+        echo "fan disabled in config"
+    fi
+}
+
+stop() {
+    /usr/sbin/fan-control stop
+    # 恢复默认 PWM 128（保守静音档），避免重启后风扇全速
+    for p in /sys/class/hwmon/hwmon*/pwm1; do
+        [ -f "$p" ] && echo 128 > "$p" 2>/dev/null
+    done
+}
+
+restart() {
+    stop
+    sleep 1
+    start
+}

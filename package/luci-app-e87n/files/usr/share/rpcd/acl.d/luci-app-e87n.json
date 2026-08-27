@@ -1,0 +1,6 @@
+{
+    "luci-app-e87n": {
+        "title": "E87N 风扇与屏幕控制",
+        "description": "Grant access to E87N fan/screen LuCI page"
+    }
+}

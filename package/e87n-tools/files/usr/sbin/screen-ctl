@@ -1,0 +1,113 @@
+#!/bin/sh
+# /usr/sbin/screen-ctl : E87N screen control
+# - 背光: GPIO524（极性见 /etc/config/screen，默认 low=0 亮 1 灭）
+#   注: 写 GPIO 后端读回可能不变（电平受面板/内核占用影响），以实际亮灭为准。
+# - 内容: 直接写 /dev/fb0（428x142 RGB565，整帧 121552 字节）
+# 用法:
+#   screen-ctl on|off|toggle              背光开关
+#   screen-ctl white|gray|black|off_fb    整屏填充(off_fb=黑屏)
+#   screen-ctl raw <file>                 显示原始 RGB565 帧
+#   screen-ctl snapshot [file]            导出当前 fb0 内容(/tmp/fb0.raw)
+#   screen-ctl status                     状态
+#   screen-ctl polarity low|high          设置背光极性
+
+FB=/dev/fb0
+GPIO=524
+D=/sys/class/gpio/gpio$GPIO
+CFG=/etc/config/screen
+
+g()  { uci -q get "screen.global.$1" 2>/dev/null; }
+
+gpio_export() {
+    [ -d "$D" ] || { echo $GPIO > /sys/class/gpio/export 2>/dev/null; }
+    [ -d "$D" ] || { echo "screen-ctl: gpio$GPIO not available" >&2; return 1; }
+    echo out > "$D/direction" 2>/dev/null
+    return 0
+}
+
+# 写入背光：参数 want=1 亮 / 0 灭（抽象值），按极性转换
+bl_set() {
+    gpio_export || return 1
+    local want=$1 pol on
+    pol=$(g polarity); pol=${pol:-low}
+    if [ "$want" = "1" ]; then
+        on=$([ "$pol" = "low" ] && echo 0 || echo 1)
+    else
+        on=$([ "$pol" = "low" ] && echo 1 || echo 0)
+    fi
+    echo "$on" > "$D/value" 2>/dev/null
+}
+
+fsize() {
+    local v w h
+    v=$(cat /sys/class/graphics/fb0/virtual_size 2>/dev/null)
+    w=${v%,*}; h=${v#*,}
+    if [ -n "$w" ] && [ -n "$h" ] && [ "$w" -gt 0 ] 2>/dev/null && [ "$h" -gt 0 ] 2>/dev/null; then
+        echo $((w*h*2))
+    else
+        echo 121552
+    fi
+}
+
+fill() {
+    # $1 = 字节值(hex)
+    local sz=$(fsize)
+    head -c "$sz" /dev/zero | tr '\000' "$1" > "$FB" 2>/dev/null
+    echo "fb filled (0x$1, $sz bytes)"
+}
+
+do_toggle() {
+    local pol on now
+    gpio_export || return 1
+    pol=$(g polarity); pol=${pol:-low}
+    on=$([ "$pol" = "high" ] && echo 1 || echo 0)
+    now=$(cat "$D/value" 2>/dev/null)
+    if [ "$now" = "$on" ]; then
+        bl_set 0; echo "backlight off"
+    else
+        bl_set 1; echo "backlight on"
+    fi
+}
+
+do_snapshot() {
+    local out="${2:-/tmp/fb0.raw}"
+    local sz=$(fsize)
+    head -c "$sz" "$FB" > "$out" 2>/dev/null
+    echo "snapshot -> $out ($sz bytes)"
+}
+
+case "$1" in
+    on)   bl_set 1 && echo "backlight on" ;;
+    off)  bl_set 0 && echo "backlight off" ;;
+    toggle) do_toggle ;;
+    white) fill '\377'; bl_set 1 ;;
+    gray)  fill '\111'; bl_set 1 ;;
+    black|off_fb) fill '\000' ;;
+    raw)
+        [ -f "$2" ] || { echo "usage: screen-ctl raw <file>" >&2; exit 1; }
+        cat "$2" > "$FB" 2>/dev/null
+        bl_set 1
+        echo "raw frame shown: $2"
+        ;;
+    snapshot) do_snapshot "$@" ;;
+    status)
+        echo "fb=$(cat /sys/class/graphics/fb0/name 2>/dev/null) vsize=$(cat /sys/class/graphics/fb0/virtual_size 2>/dev/null)"
+        if [ -d "$D" ]; then
+            echo "gpio$GPIO dir=$(cat $D/direction) val=$(cat $D/value) polarity=$(g polarity)"
+        else
+            echo "gpio$GPIO not exported"
+        fi
+        ;;
+    polarity)
+        case "$2" in
+            low|high)
+                [ -d /etc/config ] && { uci set screen.global.polarity=$2; uci commit screen; }
+                echo "polarity -> $2"
+                ;;
+            *) echo "usage: screen-ctl polarity low|high" >&2; exit 1 ;;
+        esac
+        ;;
+    *)
+        echo "usage: $0 on|off|toggle|white|gray|black|raw <file>|snapshot [file]|status|polarity low|high"
+        ;;
+esac

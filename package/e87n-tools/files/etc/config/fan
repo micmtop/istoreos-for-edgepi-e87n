@@ -1,0 +1,28 @@
+# E87N 风扇温控配置
+# mode: auto=按温控曲线自动调节 | manual=固定 PWM | off=关闭风扇
+# 温度传感器与 PWM 路径留空则自动探测（该设备 thermal_zone 不可用，
+# 实际温度源是 hwmon0(mdio_bus)/temp1_input；自动探测优先 hwmon temp，
+# 其次 thermal_zone）。hwmon 编号不固定，勿写死 hwmon2。
+config fan 'global'
+	option enabled '1'
+	# 温度传感器路径（自动探测时留空）
+	option temp_path ''
+	# 温度倍率: 1=直接摄氏度 1000=毫摄氏度(sensor 输出 mC，默认 1000)
+	option temp_divisor '1000'
+	# PWM 控制路径（自动探测时留空）
+	option pwm_path ''
+	# PWM 倍率: pwm1 输出 0-255（默认 1）
+	option pwm_max '255'
+	# 轮询间隔(秒)
+	option interval '5'
+	# 手动固定 PWM (0-255), 仅当 mode=manual 时生效
+	option mode 'auto'
+	option manual_pwm '128'
+	# 温控滞回(℃), 防止温度在档位边缘抖动
+	option hysteresis '3'
+	# 温控曲线: 温度(℃) -> PWM(0-255), 线性插值
+	list curve '35:0'
+	list curve '45:90'
+	list curve '55:140'
+	list curve '65:200'
+	list curve '75:255'

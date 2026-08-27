@@ -76,6 +76,25 @@ if [ -d "$ROOT/package/firmware/mt7987-2p5g-phy-firmware" ]; then
 else
   echo "WARN: mt7987-2p5g-phy-firmware package not found, skipping"
 fi
+# E87N 附加包：风扇/屏幕控制工具 + LVGL 屏幕显示程序
+if [ -d "$ROOT/package/e87n-tools" ]; then
+  cp -rf "$ROOT/package/e87n-tools" "$SRC/package/"
+  echo "copied e87n-tools package"
+else
+  echo "WARN: e87n-tools package not found, skipping"
+fi
+if [ -d "$ROOT/package/e87n-display" ]; then
+  cp -rf "$ROOT/package/e87n-display" "$SRC/package/"
+  echo "copied e87n-display package"
+else
+  echo "WARN: e87n-display package not found, skipping"
+fi
+if [ -d "$ROOT/package/luci-app-e87n" ]; then
+  cp -rf "$ROOT/package/luci-app-e87n" "$SRC/package/"
+  echo "copied luci-app-e87n package"
+else
+  echo "WARN: luci-app-e87n package not found, skipping"
+fi
 
 echo "==> [2.6/4] Override istoreos-boot.sh (E87N overlay fix)"
 # iStoreOS stock code uses partition 3 as overlay. On E87N, partition 3 is the
@@ -262,7 +281,7 @@ mkdir -p "$(dirname "$FCFG")"
 # hnat/PPE: MT7987 mtk_eth declares offload_version=2/ppe_num=2. Enable the
 # netfilter flow-table + nft/ipt offload so kmod-nf-flow / kmod-nft-offload /
 # kmod-ipt-offload build and the PPE can offload NAT flows (hardware NAT).
-for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y CONFIG_PHY_REALTEK=y CONFIG_STAGING=y CONFIG_FB=y CONFIG_FB_DEVICE=y CONFIG_FB_TFT=y CONFIG_FB_TFT_NV3007=y CONFIG_NF_FLOW_TABLE=m CONFIG_NF_FLOW_TABLE_INET=m CONFIG_NF_FLOW_TABLE_NETLINK=m CONFIG_NFT_FLOW_OFFLOAD=m CONFIG_NET_MEDIATEK_SOC_WED=y; do
+for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y CONFIG_PHY_REALTEK=y CONFIG_STAGING=y CONFIG_FB=y CONFIG_FB_DEVICE=y CONFIG_FB_TFT=y CONFIG_FB_TFT_NV3007=y CONFIG_BACKLIGHT_CLASS_DEVICE=y CONFIG_BACKLIGHT_PWM=y CONFIG_NF_FLOW_TABLE=m CONFIG_NF_FLOW_TABLE_INET=m CONFIG_NF_FLOW_TABLE_NETLINK=m CONFIG_NFT_FLOW_OFFLOAD=m CONFIG_NET_MEDIATEK_SOC_WED=y; do
   NAME="${SYM%%=*}"
   if ! grep -q "^${NAME}=" "$FCFG" 2>/dev/null; then
     echo "$SYM" >> "$FCFG"
@@ -301,6 +320,8 @@ addition = (anchor +
             '\techo "CONFIG_FB_DEVICE=y" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_FB_TFT=y" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_FB_TFT_NV3007=y" >> $(LINUX_DIR)/.config.set\n' +
+            '\techo "CONFIG_BACKLIGHT_CLASS_DEVICE=y" >> $(LINUX_DIR)/.config.set\n' +
+            '\techo "CONFIG_BACKLIGHT_PWM=y" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_NF_FLOW_TABLE=m" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_NF_FLOW_TABLE_INET=m" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_NF_FLOW_TABLE_NETLINK=m" >> $(LINUX_DIR)/.config.set\n' +

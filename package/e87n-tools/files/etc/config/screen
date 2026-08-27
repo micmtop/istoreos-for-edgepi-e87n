@@ -1,0 +1,8 @@
+# E87N 屏幕控制配置
+# polarity: low = GPIO524 低电平亮（0=on,1=off，backup/screen-ctl 实测）
+#           high= 高电平亮（1=on,0=off，calib_screen 观测）
+# fb 固定 142x428 RGB565，整帧 121552 字节
+config screen 'global'
+	option polarity 'low'
+	option fb_size '121552'
+	option gpio '524'
