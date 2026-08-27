@@ -19,6 +19,40 @@ echo "==> [2/4] Copy MT7987 kernel patches into patches-6.6"
 mkdir -p "$MT/patches-6.6"
 cp -f "$ROOT"/files/target/linux/mediatek/patches-6.6/*.patch "$MT/patches-6.6/"
 
+echo "==> [2.4/4] Fix mtk_eth_soc pextp PHY get (devm_of_phy_get -> optional_get)"
+# E87N net PHY (Airoha EN8811H on mdio-bus) is not described as a `phys`
+# phandle on the mac node, so mtk_add_mac()'s devm_of_phy_get() returns
+# -ENODEV and aborts the WHOLE mtk_eth probe -> eth0/eth1 never register.
+# The official (HiGoROS 6.12) driver uses devm_of_phy_optional_get(), which
+# returns NULL (not an error) when the mac has no `phys` property.  Patch the
+# stock istoreos 6.6 kernel patch the same way.  (pending-6.6 is applied by
+# OpenWrt's kernel build, so patching the .patch here is what survives the CI
+# re-clone.)
+for P737 in "$SRC"/target/linux/generic/pending-6.6/737-net-ethernet-mtk_eth_soc-add-paths-and-SerDes-modes-.patch; do
+  if [ -f "$P737" ]; then
+    python3 - "$P737" <<'PYEOF'
+import sys
+p = sys.argv[1]
+with open(p) as f:
+    s = f.read()
+old = "mac->pextp = devm_of_phy_get(eth->dev, mac->of_node, NULL);"
+new = "mac->pextp = devm_of_phy_optional_get(eth->dev, mac->of_node, NULL);"
+if new in s:
+    print("737 pextp already optional_get")
+    sys.exit(0)
+if old not in s:
+    print("WARN: 737 pextp devm_of_phy_get anchor not found", file=sys.stderr)
+    sys.exit(0)
+s = s.replace(old, new, 1)
+with open(p, 'w') as f:
+    f.write(s)
+print("737 pextp switched to devm_of_phy_optional_get")
+PYEOF
+  else
+    echo "WARN: 737 patch not found at $P737"
+  fi
+done
+
 echo "==> [2.5/4] Copy custom packages"
 mkdir -p "$SRC/package"
 if [ -d "$ROOT/package/firmware/mt7987-2p5g-phy-firmware" ]; then
