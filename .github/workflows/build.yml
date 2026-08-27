@@ -22,11 +22,29 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-dl-
 
-      - name: Cache ccache (kernel compile objects)
+      - name: Cache OpenWrt toolchain (skip gcc/binutils/musl rebuild)
+        # Free 2-core runner spends ~20-30min rebuilding the cross toolchain
+        # every run. Cache staging_dir/toolchain-* + build_dir/toolchain-*
+        # so make sees the .built marker and skips it. Key on the config hash
+        # (target arch only changes when e87n.config changes); restore-keys
+        # still reuse the last toolchain even when the config did change.
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/istoreos/staging_dir/toolchain-*
+            build/istoreos/build_dir/toolchain-*
+          key: ${{ runner.os }}-toolchain-${{ hashFiles('build/e87n.config') }}
+          restore-keys: |
+            ${{ runner.os }}-toolchain-
+
+      - name: Cache ccache (kernel + package compile objects)
+        # Key on the E87N source we control (dts/patches/apply.sh/config),
+        # NOT github.sha. A rebuild of the same commit or a commit that only
+        # touches unrelated files then HITS this cache instead of missing.
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ${{ runner.os }}-ccache-${{ github.sha }}
+          key: ${{ runner.os }}-ccache-${{ hashFiles('build/files/**', 'build/apply.sh', 'build/e87n.config') }}
           restore-keys: |
             ${{ runner.os }}-ccache-
 
@@ -38,7 +56,9 @@ jobs:
             python3-distutils python3-setuptools rsync unzip zlib1g-dev \
             file wget qemu-utils libelf-dev jq ccache
           sudo apt-get clean
-          ccache --max-size 2G
+          ccache --max-size 4G
+          ccache --set-config=compression=true
+          ccache --set-config=compression_level=1
           echo "ccache: $(ccache --version | head -1)"
           echo "=== disk after deps ==="
           df -h
