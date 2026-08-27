@@ -74,10 +74,8 @@ jobs:
           # Linkease's NAS feeds, which are NOT in the stock feeds.conf. Add them so
           # the E87N build can preinstall quickstart (wizard+homepage) and hnat.
           # NOTE: 'main' does not exist on nas-packages; use 'linkeasefull'.
-          cat >> feeds.conf.default <<'EOF'
-src-gitfull nas https://github.com/linkease/nas-packages.git;linkeasefull
-src-gitfull nas_luci https://github.com/linkease/nas-packages-luci.git;main
-EOF
+          # (printf used because a YAML heredoc EOF at column 0 breaks the workflow file)
+          printf 'src-gitfull nas https://github.com/linkease/nas-packages.git;linkeasefull\nsrc-gitfull nas_luci https://github.com/linkease/nas-packages-luci.git;main\n' >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
