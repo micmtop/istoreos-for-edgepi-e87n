@@ -38,13 +38,17 @@ jobs:
             ${{ runner.os }}-toolchain-
 
       - name: Cache ccache (kernel + package compile objects)
-        # Key on the E87N source we control (dts/patches/apply.sh/config),
-        # NOT github.sha. A rebuild of the same commit or a commit that only
-        # touches unrelated files then HITS this cache instead of missing.
+        # IMPORTANT: key MUST NOT depend on files under build/files/** or
+        # apply.sh. Those are the DTS/patch sources we edit on every fix, so
+        # hashing them invalidates the WHOLE ccache on every commit (the
+        # cache is then never hit). ccache is content-addressed: it only needs
+        # the restored ~/.cache/ccache dir, and it hits per-object regardless
+        # of this key. Pin the key to a stable constant + restore-keys prefix
+        # so the dir is always restored and ccache does the real work.
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ${{ runner.os }}-ccache-${{ hashFiles('build/files/**', 'build/apply.sh', 'build/e87n.config') }}
+          key: ${{ runner.os }}-ccache-v1
           restore-keys: |
             ${{ runner.os }}-ccache-
 

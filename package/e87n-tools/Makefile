@@ -24,7 +24,7 @@ define Build/Compile
 endef
 
 define Package/e87n-tools/install
-	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config
+	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/sbin
 	$(INSTALL_BIN) \
 		./files/usr/sbin/fan-control \
 		$(1)/usr/sbin/fan-control
@@ -34,6 +34,9 @@ define Package/e87n-tools/install
 	$(INSTALL_BIN) \
 		./files/usr/bin/fanctl \
 		$(1)/usr/bin/fanctl
+	$(INSTALL_BIN) \
+		./files/sbin/cpuinfo \
+		$(1)/sbin/cpuinfo
 	$(INSTALL_BIN) \
 		./files/etc/init.d/fan \
 		$(1)/etc/init.d/fan

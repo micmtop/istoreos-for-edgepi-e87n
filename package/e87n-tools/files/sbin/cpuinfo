@@ -1,0 +1,20 @@
+#!/bin/sh
+# /sbin/cpuinfo : E87N CPU 温度 hook（iStoreOS quickstart 主页温度扩展点）
+# quickstart 守护进程会执行此脚本，解析输出中的数字作为 CPU 温度（℃）。
+# 优先级: thermal_zone0 > hwmon* temp1_input（E87N 实测 thermal_zone 不可用，
+# 实际温度源是 hwmon0(mdio PHY temp)/temp1_input，约 45℃）。
+t=""
+for z in /sys/class/thermal/thermal_zone*/temp; do
+  [ -r "$z" ] && t=$(cat "$z" 2>/dev/null) && break
+done
+if [ -z "$t" ]; then
+  for h in /sys/class/hwmon/hwmon*/temp1_input; do
+    [ -r "$h" ] && t=$(cat "$h" 2>/dev/null) && break
+  done
+fi
+if [ -n "$t" ] && [ "$t" -gt 0 ] 2>/dev/null; then
+  c=$((t/1000))
+  echo "CPU ${c}.0°C"
+else
+  echo "CPU --"
+fi
