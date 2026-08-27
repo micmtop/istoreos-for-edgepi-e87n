@@ -16,7 +16,7 @@ define Package/e87n-display
   CATEGORY:=Utilities
   TITLE:=E87N LVGL screen display program
   URL:=https://github.com/micmtop/istoreos-for-edgepi-e87n
-  DEPENDS:=+libc +libpthread
+  DEPENDS:=+libc +libpthread +libstdcpp
 endef
 
 define Package/e87n-display/description
