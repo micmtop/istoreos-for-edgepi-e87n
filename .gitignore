@@ -6,6 +6,10 @@ staging_dir/
 bin/
 tmp/
 
+# 取消对 e87n-tools 包脚本的误伤（bin/ 规则会忽略 files/usr/bin/）
+!package/e87n-tools/files/usr/bin/
+!package/e87n-tools/files/usr/bin/fanctl
+
 # 本地调试与日志
 *.log
 .apply_*.log

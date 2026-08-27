@@ -1,0 +1,136 @@
+#!/bin/sh
+# E87N 风扇控制命令行工具
+# 用法:
+#   fanctl status                    显示当前状态
+#   fanctl mode auto|manual|off      切换模式
+#   fanctl pwm <0-255>               手动模式设固定 PWM（同时把模式切为 manual）
+#   fanctl curve "35:0 45:90 ..."    设置温控曲线
+#   fanctl manual <0-255>            只改手动值，不切模式
+#   fanctl interval <秒>             轮询间隔
+#   fanctl enable|disable            启用/停用风扇服务（写 uci enabled）
+
+CFG="fan.global"
+SVC="/usr/sbin/fan-control"
+
+uci_get() { uci -q get "$CFG.$1" 2>/dev/null; }
+
+_apply_now() {
+    # 写 uci 后立即让守护进程下一个循环读到（守护进程每轮都重读配置）
+    uci commit fan
+    # 若守护进程在长 sleep，补一个 restart 保证即时生效
+    if [ -x "$SVC" ]; then
+        $SVC reload >/dev/null 2>&1
+    fi
+}
+
+print_status() {
+    local pwm_path temp_path en
+    pwm_path=$(uci_get pwm_path)
+    temp_path=$(uci_get temp_path)
+    [ -n "$pwm_path" ] || pwm_path=$(ls /sys/class/hwmon/hwmon*/pwm1 2>/dev/null | head -1)
+    [ -n "$temp_path" ] || temp_path=$(ls /sys/class/hwmon/hwmon*/temp1_input 2>/dev/null | head -1)
+    echo "mode=$(uci_get mode)"
+    echo "enabled=$(uci_get enabled)"
+    echo "interval=$(uci_get interval)"
+    echo "manual_pwm=$(uci_get manual_pwm)"
+    if [ -n "$pwm_path" ]; then
+        echo "pwm=$(tr -d '\n' < "$pwm_path" 2>/dev/null)"
+        en="${pwm_path%pwm1}pwm1_enable"
+        [ -f "$en" ] && echo "pwm1_enable=$(tr -d '\n' < "$en")"
+    else
+        echo "pwm=NA"
+    fi
+    if [ -n "$temp_path" ]; then
+        local d t
+        d=$(uci_get temp_divisor); d=${d:-1000}
+        t=$(tr -d '\n' < "$temp_path" 2>/dev/null)
+        [ "$d" = "1" ] && echo "temp=${t} C" || echo "temp=$((t/d)) C"
+    else
+        echo "temp=NA"
+    fi
+    pid=$(cat /var/run/fan-control.pid 2>/dev/null)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        echo "daemon=running pid=$pid"
+    else
+        echo "daemon=stopped"
+    fi
+    echo "curve=$(uci -q show fan.global | grep '^fan\.global\.curve=' | sed "s/^fan\.global\.curve=//; s/'//g" | tr '\n' ' ')"
+}
+
+case "$1" in
+    status)
+        print_status
+        ;;
+    mode)
+        case "$2" in
+            auto|manual|off)
+                uci set "$CFG.mode=$2"
+                _apply_now
+                echo "mode -> $2"
+                ;;
+            *) echo "usage: fanctl mode auto|manual|off" >&2; exit 1 ;;
+        esac
+        ;;
+    pwm)
+        v="$2"
+        case "$v" in
+            ''|*[!0-9]*) echo "usage: fanctl pwm <0-255>" >&2; exit 1 ;;
+        esac
+        [ "$v" -gt 255 ] 2>/dev/null && v=255
+        [ "$v" -lt 0 ] 2>/dev/null && v=0
+        uci set "$CFG.mode=manual"
+        uci set "$CFG.manual_pwm=$v"
+        _apply_now
+        # 直接写一次 sysfs，立即生效
+        p=$(uci_get pwm_path); [ -n "$p" ] || p=$(ls /sys/class/hwmon/hwmon*/pwm1 2>/dev/null | head -1)
+        [ -n "$p" ] && echo "$v" > "$p" 2>/dev/null && echo "pwm -> $v (manual)"
+        ;;
+    manual)
+        v="$2"
+        case "$v" in
+            ''|*[!0-9]*) echo "usage: fanctl manual <0-255>" >&2; exit 1 ;;
+        esac
+        [ "$v" -gt 255 ] 2>/dev/null && v=255
+        uci set "$CFG.manual_pwm=$v"
+        _apply_now
+        m=$(uci_get mode)
+        if [ "$m" = "manual" ]; then
+            p=$(uci_get pwm_path); [ -n "$p" ] || p=$(ls /sys/class/hwmon/hwmon*/pwm1 2>/dev/null | head -1)
+            [ -n "$p" ] && echo "$v" > "$p" 2>/dev/null
+        fi
+        echo "manual_pwm -> $v"
+        ;;
+    curve)
+        [ -n "$2" ] || { echo "usage: fanctl curve \"35:0 45:90 ...\"" >&2; exit 1; }
+        uci delete "$CFG.curve" 2>/dev/null
+        for pt in $2; do
+            uci add_list "$CFG.curve=$pt"
+        done
+        _apply_now
+        echo "curve -> $2"
+        ;;
+    interval)
+        v="$2"
+        case "$v" in
+            ''|*[!0-9]*) echo "usage: fanctl interval <秒>" >&2; exit 1 ;;
+        esac
+        uci set "$CFG.interval=$v"
+        _apply_now
+        echo "interval -> ${v}s"
+        ;;
+    enable)
+        uci set "$CFG.enabled=1"; uci commit fan
+        [ -x "/etc/init.d/fan" ] && /etc/init.d/fan enable 2>/dev/null
+        _apply_now
+        echo "fan enabled"
+        ;;
+    disable)
+        uci set "$CFG.enabled=0"; uci commit fan
+        [ -x "/etc/init.d/fan" ] && /etc/init.d/fan disable 2>/dev/null
+        $SVC stop >/dev/null 2>&1
+        echo "fan disabled"
+        ;;
+    *)
+        echo "usage: fanctl status|mode|pwm|manual|curve|interval|enable|disable"
+        ;;
+esac
