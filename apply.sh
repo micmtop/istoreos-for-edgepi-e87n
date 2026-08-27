@@ -262,7 +262,7 @@ mkdir -p "$(dirname "$FCFG")"
 # hnat/PPE: MT7987 mtk_eth declares offload_version=2/ppe_num=2. Enable the
 # netfilter flow-table + nft/ipt offload so kmod-nf-flow / kmod-nft-offload /
 # kmod-ipt-offload build and the PPE can offload NAT flows (hardware NAT).
-for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y CONFIG_PHY_REALTEK=y CONFIG_STAGING=y CONFIG_FB=y CONFIG_FB_DEVICE=y CONFIG_FB_TFT=y CONFIG_FB_TFT_NV3007=y CONFIG_NF_FLOW_TABLE=m CONFIG_NF_FLOW_TABLE_INET=m CONFIG_NF_FLOW_TABLE_NETLINK=m CONFIG_NF_FLOW_TABLE_PROCFS=m CONFIG_NFT_FLOW_OFFLOAD=m CONFIG_NET_MEDIATEK_SOC_PPE=y CONFIG_NET_MEDIATEK_SOC_WED=y; do
+for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y CONFIG_PHY_REALTEK=y CONFIG_STAGING=y CONFIG_FB=y CONFIG_FB_DEVICE=y CONFIG_FB_TFT=y CONFIG_FB_TFT_NV3007=y CONFIG_NF_FLOW_TABLE=m CONFIG_NF_FLOW_TABLE_INET=m CONFIG_NF_FLOW_TABLE_NETLINK=m CONFIG_NFT_FLOW_OFFLOAD=m CONFIG_NET_MEDIATEK_SOC_WED=y; do
   NAME="${SYM%%=*}"
   if ! grep -q "^${NAME}=" "$FCFG" 2>/dev/null; then
     echo "$SYM" >> "$FCFG"
@@ -293,12 +293,18 @@ if anchor not in s:
     print("ERROR: cannot find SetNoInitramfs anchor in kernel-defaults.mk",
           file=sys.stderr)
     sys.exit(1)
+# hnat: force flow-offload kmods as modules so kconfig does not prompt
+# (NF_FLOW_TABLE_PROCFS omitted: it is not needed and trips syncconfig)
 addition = (anchor +
             '\techo "CONFIG_STAGING=y" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_FB=y" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_FB_DEVICE=y" >> $(LINUX_DIR)/.config.set\n' +
             '\techo "CONFIG_FB_TFT=y" >> $(LINUX_DIR)/.config.set\n' +
-            '\techo "CONFIG_FB_TFT_NV3007=y" >> $(LINUX_DIR)/.config.set\n')
+            '\techo "CONFIG_FB_TFT_NV3007=y" >> $(LINUX_DIR)/.config.set\n' +
+            '\techo "CONFIG_NF_FLOW_TABLE=m" >> $(LINUX_DIR)/.config.set\n' +
+            '\techo "CONFIG_NF_FLOW_TABLE_INET=m" >> $(LINUX_DIR)/.config.set\n' +
+            '\techo "CONFIG_NF_FLOW_TABLE_NETLINK=m" >> $(LINUX_DIR)/.config.set\n' +
+            '\techo "CONFIG_NFT_FLOW_OFFLOAD=m" >> $(LINUX_DIR)/.config.set\n')
 s = s.replace(anchor, addition, 1)
 with open(p, 'w') as f:
     f.write(s)
