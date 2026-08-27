@@ -17,7 +17,22 @@ cp -f "$ROOT/files/target/linux/mediatek/dts/mt7987a-edgepi-e87n.dts" "$MT/dts/"
 
 echo "==> [2/4] Copy MT7987 kernel patches into patches-6.6"
 mkdir -p "$MT/patches-6.6"
-cp -f "$ROOT"/files/target/linux/mediatek/patches-6.6/*.patch "$MT/patches-6.6/"
+# EXCLUDE 752 (mt7987 2.5G built-in PHY driver): its mt798x_2p5ge_phy_probe()
+# crashes (kernel panic: pc=0x0 in mtk_phy_leds_state_init) when probing
+# phy@15 on E87N.  The official HiGoROS 6.12 kernel does NOT register an
+# MT7987 driver for the built-in 2.5G PHY (probe returns -EINVAL), so phy@15
+# falls back to the generic C45 PHY driver and works.  Match that behaviour.
+for P in "$ROOT"/files/target/linux/mediatek/patches-6.6/*.patch; do
+  B="$(basename "$P")"
+  case "$B" in
+    752-net-phy-mediatek-i2p5g-add-support-for-mt7987.patch)
+      echo "EXCLUDED $B (2.5G built-in PHY driver crashes on E87N phy@15)"
+      ;;
+    *)
+      cp -f "$P" "$MT/patches-6.6/"
+      ;;
+  esac
+done
 
 echo "==> [2.4/4] Fix mtk_eth_soc pextp PHY get (devm_of_phy_get -> optional_get)"
 # E87N net PHY (Airoha EN8811H on mdio-bus) is not described as a `phys`
