@@ -69,6 +69,15 @@ jobs:
           rm -rf istoreos
           git clone -b istoreos-24.10 --depth 1 https://github.com/istoreos/istoreos.git istoreos
           cd istoreos
+          # iStoreOS stock feeds.conf lists packages/luci/store/third/routing/telephony.
+          # The network-wizard + homepage UI (luci-app-quickstart / quickstart) live in
+          # Linkease's NAS feeds, which are NOT in the stock feeds.conf. Add them so
+          # the E87N build can preinstall quickstart (wizard+homepage) and hnat.
+          # NOTE: 'main' does not exist on nas-packages; use 'linkeasefull'.
+          cat >> feeds.conf.default <<'EOF'
+src-gitfull nas https://github.com/linkease/nas-packages.git;linkeasefull
+src-gitfull nas_luci https://github.com/linkease/nas-packages-luci.git;main
+EOF
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 

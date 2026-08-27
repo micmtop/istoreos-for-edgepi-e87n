@@ -259,7 +259,10 @@ mkdir -p "$(dirname "$FCFG")"
 # FB_TFT in 6.6 depends on FB && SPI && FB_DEVICE && GPIOLIB (and needs
 # STAGING for the staging/fbtft tree to be visible). Injecting FB_TFT=y
 # alone was reset by syncconfig because FB_DEVICE/STAGING were not forced.
-for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y CONFIG_PHY_REALTEK=y CONFIG_STAGING=y CONFIG_FB=y CONFIG_FB_DEVICE=y CONFIG_FB_TFT=y CONFIG_FB_TFT_NV3007=y; do
+# hnat/PPE: MT7987 mtk_eth declares offload_version=2/ppe_num=2. Enable the
+# netfilter flow-table + nft/ipt offload so kmod-nf-flow / kmod-nft-offload /
+# kmod-ipt-offload build and the PPE can offload NAT flows (hardware NAT).
+for SYM in CONFIG_HW_RANDOM_MTK_V2=y CONFIG_PINCTRL_MT7987=y CONFIG_COMMON_CLK_MT7987=y CONFIG_PHY_REALTEK=y CONFIG_STAGING=y CONFIG_FB=y CONFIG_FB_DEVICE=y CONFIG_FB_TFT=y CONFIG_FB_TFT_NV3007=y CONFIG_NF_FLOW_TABLE=m CONFIG_NF_FLOW_TABLE_INET=m CONFIG_NF_FLOW_TABLE_NETLINK=m CONFIG_NF_FLOW_TABLE_PROCFS=m CONFIG_NFT_FLOW_OFFLOAD=m CONFIG_NET_MEDIATEK_SOC_PPE=y CONFIG_NET_MEDIATEK_SOC_WED=y; do
   NAME="${SYM%%=*}"
   if ! grep -q "^${NAME}=" "$FCFG" 2>/dev/null; then
     echo "$SYM" >> "$FCFG"
