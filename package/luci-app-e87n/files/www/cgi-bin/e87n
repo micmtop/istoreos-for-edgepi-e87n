@@ -1,18 +1,16 @@
 #!/bin/sh
 # /www/cgi-bin/e87n - E87N 风扇/屏幕控制 CGI 后端（ash 实现，不依赖 jshn）
 # API:
-#   e87n?action=status                      返回综合状态
+#   e87n?action=status                      返回综合状态（温度=摄氏度, 含曲线）
 #   e87n?action=set_fan&mode=auto|manual|off[&pwm=0-255]
 #   e87n?action=set_screen&state=on|off
 #   e87n?action=set_display&page=1-4|cycle[&cycle=秒][&text=行] (text 可多次提交)
 #   e87n?action=preview                     屏幕帧 base64 + 尺寸
 
 # ---------- 通用 ----------
-CONTENT_TYPE="application/json"
-printf 'Content-Type: %s\r\n\r\n' "$CONTENT_TYPE"
+printf 'Content-Type: application/json\r\n\r\n'
 
 json_esc() {
-    # 转义 JSON 字符串
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\r//g; s/\t/\\t/g'
 }
 
@@ -35,38 +33,66 @@ qparam() {
 
 ACTION=$(qparam action)
 
-# GPIO 背光状态（抽象值 1=亮 0=灭）
+# 背光状态：优先 fb0/blank（0=亮 1=灭），其次 GPIO 读回
 BACKLIGHT="unknown"
-GPIO_N=$(uci -q get screen.global.gpio 2>/dev/null); GPIO_N=${GPIO_N:-524}
-if [ -r "/sys/class/gpio/gpio$GPIO_N/value" ]; then
-    POL=$(uci -q get screen.global.polarity 2>/dev/null); POL=${POL:-low}
-    V=$(cat "/sys/class/gpio/gpio$GPIO_N/value" 2>/dev/null)
-    if [ "$POL" = "low" ]; then
-        [ "$V" = "0" ] && BACKLIGHT="on" || BACKLIGHT="off"
-    else
-        [ "$V" = "1" ] && BACKLIGHT="on" || BACKLIGHT="off"
+if [ -r /sys/class/graphics/fb0/blank ]; then
+    BL=$(cat /sys/class/graphics/fb0/blank 2>/dev/null | tr -d '\n')
+    [ "$BL" = "0" ] && BACKLIGHT="on"
+    [ "$BL" = "1" ] && BACKLIGHT="off"
+else
+    GPIO_N=$(uci -q get screen.global.gpio 2>/dev/null); GPIO_N=${GPIO_N:-524}
+    if [ -r "/sys/class/gpio/gpio$GPIO_N/value" ]; then
+        POL=$(uci -q get screen.global.polarity 2>/dev/null); POL=${POL:-low}
+        V=$(cat "/sys/class/gpio/gpio$GPIO_N/value" 2>/dev/null)
+        if [ "$POL" = "low" ]; then
+            [ "$V" = "0" ] && BACKLIGHT="on" || BACKLIGHT="off"
+        else
+            [ "$V" = "1" ] && BACKLIGHT="on" || BACKLIGHT="off"
+        fi
     fi
 fi
 
-ACTION=$(echo "$QUERY_STRING" | sed 's/&/\n/g' | sed -n 's/^action=\(.*\)$/\1/p' | head -1)
-
 case "$ACTION" in
     status)
-        TEMP="--"; PWM="--"
-        [ -n "$TEMP_FILE" ] && TEMP=$(read_int "$TEMP_FILE")
+        TEMP_RAW=""; PWM="--"
+        [ -n "$TEMP_FILE" ] && TEMP_RAW=$(read_int "$TEMP_FILE")
         [ -n "$PWM_PATH" ] && PWM=$(read_int "$PWM_PATH")
+        # 温度: 毫摄氏度 -> 摄氏度（divisor=1000），保留整数
+        DIV=$(uci -q get fan.global.temp_divisor 2>/dev/null); DIV=${DIV:-1000}
+        TEMP="--"
+        case "$TEMP_RAW" in
+            ''|*[!0-9]*) ;;
+            *) TEMP=$((TEMP_RAW / DIV)) ;;
+        esac
+
         FAN_MODE=$(uci -q get fan.global.mode 2>/dev/null); FAN_MODE=${FAN_MODE:-auto}
         FAN_ENABLED=$(uci -q get fan.global.enabled 2>/dev/null); FAN_ENABLED=${FAN_ENABLED:-1}
+        MANUAL_PWM=$(uci -q get fan.global.manual_pwm 2>/dev/null); MANUAL_PWM=${MANUAL_PWM:-128}
         PIDOF=$(pidof fan-control 2>/dev/null); [ -n "$PIDOF" ] && fan_run=1 || fan_run=0
         PIDOF2=$(pidof e87n-display 2>/dev/null); [ -n "$PIDOF2" ] && disp_run=1 || disp_run=0
         DISP_PAGE=$(uci -q get e87n-display.global.page 2>/dev/null); DISP_PAGE=${DISP_PAGE:-1}
         DISP_CYCLE=$(uci -q get e87n-display.global.cycle_seconds 2>/dev/null); DISP_CYCLE=${DISP_CYCLE:-10}
+
+        # 温控曲线: 从 uci list 逐行输出
+        CURVE_JSON=""
+        SEP=""
+        echo "$(uci -q get fan.global.curve 2>/dev/null)" | tr ' ' '\n' | grep -v '^$' | while read -r pt; do
+            pt=$(echo "$pt" | tr -d "'")
+            [ -z "$pt" ] && continue
+            t=${pt%%:*}; p=${pt##*:}
+            printf '%s{"t":%s,"pwm":%s}' "$SEP" "${t%%[!0-9]*}" "${p%%[!0-9]*}"
+            SEP=","
+        done > /tmp/e87n-curve.json
+        CURVE_JSON=$(cat /tmp/e87n-curve.json 2>/dev/null); rm -f /tmp/e87n-curve.json
+
         FB_W=""; FB_H=""
         if [ -r /sys/class/graphics/fb0/virtual_size ]; then
             VS=$(cat /sys/class/graphics/fb0/virtual_size); FB_W=${VS%,*}; FB_H=${VS#*,}
         fi
+
         printf '{"ok":1,'
-        printf '"temp":%s,"pwm":%s,' "$TEMP" "$PWM"
+        printf '"temp":%s,"pwm":%s,"manual_pwm":%s,' "$TEMP" "$PWM" "$MANUAL_PWM"
+        printf '"curve":[%s],' "$CURVE_JSON"
         printf '"fan":{"mode":"%s","enabled":%s,"running":%s},' "$FAN_MODE" "$FAN_ENABLED" "$fan_run"
         printf '"screen":{"state":"%s"},' "$BACKLIGHT"
         printf '"display":{"running":%s,"page":"%s","cycle":%s},' "$disp_run" "$DISP_PAGE" "$DISP_CYCLE"
@@ -78,7 +104,6 @@ case "$ACTION" in
         PW=$(qparam pwm)
         case "$M" in
             manual)
-                # 手动模式：一次链路 = mode manual + pwm <值>
                 case "$PW" in
                     ''|*[!0-9]*) printf '{"ok":0,"err":"pwm required for manual"}\n'; exit 0 ;;
                 esac
@@ -100,9 +125,16 @@ case "$ACTION" in
     set_screen)
         S=$(qparam state)
         case "$S" in
-            on) /usr/sbin/screen-ctl on >/dev/null 2>&1; printf '{"ok":1,"state":"on"}\n' ;;
-            off) /usr/sbin/screen-ctl off >/dev/null 2>&1; printf '{"ok":1,"state":"off"}\n' ;;
-            *) printf '{"ok":0,"err":"bad state"}\n' ;;
+            on)
+                OUT=$(/usr/sbin/screen-ctl on 2>&1); RC=$?
+                printf '{"ok":%s,"state":"on","out":"%s"}\n' "$([ $RC -eq 0 ] && echo 1 || echo 0)" "$(json_esc "$OUT")"
+                ;;
+            off)
+                OUT=$(/usr/sbin/screen-ctl off 2>&1); RC=$?
+                printf '{"ok":%s,"state":"off","out":"%s"}\n' "$([ $RC -eq 0 ] && echo 1 || echo 0)" "$(json_esc "$OUT")"
+                ;;
+            *)
+                printf '{"ok":0,"err":"bad state"}\n' ;;
         esac
         ;;
     set_display)
@@ -116,7 +148,6 @@ case "$ACTION" in
         esac
         uci -q delete e87n-display.global.custom_text 2>/dev/null
         if [ -n "$TX" ]; then
-            # 支持多个 text= 参数
             for t in $(echo "$QUERY_STRING" | sed 's/&/ /g'); do
                 case "$t" in
                     text=*) uci -q add_list e87n-display.global.custom_text="${t#text=}" ;;
@@ -136,7 +167,6 @@ case "$ACTION" in
             SZ=$((W*H*2))
         fi
         [ "$SZ" -le 0 ] && SZ=121552
-        # 写头 + 帧数据 base64（直通 stdout，不用变量缓冲 162KB）
         printf '{"ok":1,"w":%s,"h":%s,"size":%s,"b64":"' "${W:-142}" "${H:-428}" "$SZ"
         dd if=/dev/fb0 bs=1024 count=$(((SZ+1023)/1024)) 2>/dev/null | \
             head -c "$SZ" | openssl base64 -A 2>/dev/null
