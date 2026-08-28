@@ -33,15 +33,17 @@ qparam() {
 
 ACTION=$(qparam action)
 
-# 背光状态：优先 pwm-backlight brightness (>0 亮 / 0 灭)，其次 fb0/blank，最后 GPIO
+# 背光状态：优先 pwm-backlight brightness（反逻辑：低=亮 max=灭），其次 fb0/blank
 BACKLIGHT="unknown"
 BLDIR=/sys/class/backlight/backlight
+BLMAX=$(cat "$BLDIR/max_brightness" 2>/dev/null | tr -d '\n'); BLMAX=${BLMAX:-26}
 if [ -r "$BLDIR/brightness" ]; then
     BL=$(cat "$BLDIR/brightness" 2>/dev/null | tr -d '\n')
     case "$BL" in
         ''|*[!0-9]*) ;;
-        0) BACKLIGHT="off" ;;
-        *) BACKLIGHT="on" ;;
+        "$BLMAX") BACKLIGHT="off" ;;
+        0) BACKLIGHT="on" ;;
+        *) [ "$BL" -lt "$((BLMAX/2))" ] && BACKLIGHT="on" || BACKLIGHT="off" ;;
     esac
 elif [ -r /sys/class/graphics/fb0/blank ]; then
     BL=$(cat /sys/class/graphics/fb0/blank 2>/dev/null | tr -d '\n')

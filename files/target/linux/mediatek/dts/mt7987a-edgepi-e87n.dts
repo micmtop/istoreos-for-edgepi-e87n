@@ -72,7 +72,12 @@
         };
 
         /* LCD backlight (matches stock HiGoROS DTB: pwm-backlight on PWM2,
-         * period 50000ns, 27 brightness levels, default level 16). */
+         * period 50000ns, 27 brightness levels). NOTE: HiGoROS treats the
+         * backlight as INVERTED logic - brightness 0 = brightest, brightness
+         * = max = off (their display-control writes max_brightness to turn
+         * off, and percent_to_brightness(p)=max*(100-p)/100, default 72% =>
+         * brightness 7). default-brightness-level must be LOW so the panel
+         * comes up bright; stock 16 would be near-dark. */
         backlight {
                 compatible = "pwm-backlight";
                 pinctrl-names = "default";
@@ -81,7 +86,7 @@
                 brightness-levels = <0 10 20 30 40 50 60 70 80 90 100
                                      110 120 130 140 150 160 170 180 190
                                      200 210 220 230 240 250 255>;
-                default-brightness-level = <16>;
+                default-brightness-level = <7>;
                 status = "okay";
         };
 };

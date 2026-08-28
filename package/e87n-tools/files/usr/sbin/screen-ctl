@@ -14,10 +14,12 @@
 
 FB=/dev/fb0
 FBNAME=/sys/class/graphics/fb0
-# pwm-backlight (PWM2, see DTS): brightness 0=灭 >0=亮
+# pwm-backlight (PWM2, see DTS)
 BLDIR=/sys/class/backlight/backlight
-# default-brightness-level from DTS (16 of 27 levels), used when restoring "on"
-BL_DEFAULT=16
+# 背光为反逻辑（原厂 luci-app-display/display-control 语义）：
+#   brightness 低 = 亮，brightness = max = 灭（原厂 turn_off 写 max_brightness 关屏）。
+#   原厂 percent_to_brightness(p) = max*(100-p)/100；默认 72% 亮度 -> brightness≈7。
+BL_DEFAULT=7
 GPIO=524
 D=/sys/class/gpio/gpio$GPIO
 CFG=/etc/config/screen
@@ -46,22 +48,25 @@ gpio_write() {
 }
 
 # 写入背光：want=1 亮 / 0 灭。
-# 主路径 = pwm-backlight brightness (0=灭, >0=亮)。fbtft 的 fb0/blank 在 NV3007
-# 上不可写(驱动未实现 blank 回调)，GPIO524 又未导出，所以必须用 brightness。
+# 主路径 = pwm-backlight brightness，但 E87N 背光为反逻辑（原厂语义）：
+#   brightness 低 = 亮，brightness = max = 灭。原厂 turn_off 写 max_brightness 关屏。
 bl_set() {
     local want=$1
     if [ -w "$BLDIR/brightness" ]; then
+        local max cur def
+        max=$(cat "$BLDIR/max_brightness" 2>/dev/null | tr -d '\n')
+        [ -n "$max" ] || max=26
         if [ "$want" = "1" ]; then
-            local cur def
             cur=$(cat "$BLDIR/brightness" 2>/dev/null | tr -d '\n')
             case "$cur" in
-                ''|0)
+                ''|"$max")
                     def=$(g brightness); def=${def:-$BL_DEFAULT}
+                    [ "$def" -gt "$max" ] && def=$max
                     echo "$def" > "$BLDIR/brightness" 2>/dev/null
                     ;;
             esac
         else
-            echo 0 > "$BLDIR/brightness" 2>/dev/null
+            echo "$max" > "$BLDIR/brightness" 2>/dev/null
         fi
         return 0
     fi
@@ -82,13 +87,16 @@ bl_set() {
 }
 
 fb_state() {
-    # 0=亮(unblank) 1=灭(blank); 基于 backlight brightness (>0亮 / 0灭)
-    local b
+    # 0=亮 1=灭；反逻辑：brightness=0 最亮，brightness=max 灭
+    local b max
     b=$(cat "$BLDIR/brightness" 2>/dev/null | tr -d '\n')
+    max=$(cat "$BLDIR/max_brightness" 2>/dev/null | tr -d '\n')
+    [ -n "$max" ] || max=26
     case "$b" in
         ''|*[!0-9]*) cat "$FBNAME/blank" 2>/dev/null | tr -d '\n' ;;
-        0) echo 1 ;;
-        *) echo 0 ;;
+        "$max") echo 1 ;;
+        0) echo 0 ;;
+        *) [ "$b" -lt "$((max/2))" ] && echo 0 || echo 1 ;;
     esac
 }
 
