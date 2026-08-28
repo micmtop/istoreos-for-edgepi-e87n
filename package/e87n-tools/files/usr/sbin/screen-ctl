@@ -14,6 +14,10 @@
 
 FB=/dev/fb0
 FBNAME=/sys/class/graphics/fb0
+# pwm-backlight (PWM2, see DTS): brightness 0=灭 >0=亮
+BLDIR=/sys/class/backlight/backlight
+# default-brightness-level from DTS (16 of 27 levels), used when restoring "on"
+BL_DEFAULT=16
 GPIO=524
 D=/sys/class/gpio/gpio$GPIO
 CFG=/etc/config/screen
@@ -41,27 +45,51 @@ gpio_write() {
     return 0
 }
 
-# 写入背光：want=1 亮 / 0 灭。主路径 = fb0/blank（1=blank灭 0=unblank亮）
+# 写入背光：want=1 亮 / 0 灭。
+# 主路径 = pwm-backlight brightness (0=灭, >0=亮)。fbtft 的 fb0/blank 在 NV3007
+# 上不可写(驱动未实现 blank 回调)，GPIO524 又未导出，所以必须用 brightness。
 bl_set() {
-    local want=$1 err=0
-    if [ -w "$FBNAME/blank" ]; then
-        # blank: 0=unblank(亮) 1=blank(灭)
+    local want=$1
+    if [ -w "$BLDIR/brightness" ]; then
         if [ "$want" = "1" ]; then
-            echo 0 > "$FBNAME/blank" 2>/dev/null || err=1
+            local cur def
+            cur=$(cat "$BLDIR/brightness" 2>/dev/null | tr -d '\n')
+            case "$cur" in
+                ''|0)
+                    def=$(g brightness); def=${def:-$BL_DEFAULT}
+                    echo "$def" > "$BLDIR/brightness" 2>/dev/null
+                    ;;
+            esac
         else
-            echo 1 > "$FBNAME/blank" 2>/dev/null || err=1
+            echo 0 > "$BLDIR/brightness" 2>/dev/null
         fi
-        [ "$err" = "0" ] && { gpio_write "$want"; return 0; }
+        return 0
     fi
-    # 无 blank 节点退化为 GPIO
+    # 回退: fbtft fb0/blank (0=unblank亮 1=blank灭)
+    if [ -w "$FBNAME/blank" ]; then
+        if [ "$want" = "1" ]; then
+            echo 0 > "$FBNAME/blank" 2>/dev/null
+        else
+            echo 1 > "$FBNAME/blank" 2>/dev/null
+        fi
+        gpio_write "$want"
+        return 0
+    fi
+    # 最后回退: GPIO
     gpio_write "$want" && return 0
     echo "screen-ctl: backlight control unavailable" >&2
     return 1
 }
 
 fb_state() {
-    # 0=亮(unblank) 1=灭(blank); 读不到则未知
-    cat "$FBNAME/blank" 2>/dev/null | tr -d '\n'
+    # 0=亮(unblank) 1=灭(blank); 基于 backlight brightness (>0亮 / 0灭)
+    local b
+    b=$(cat "$BLDIR/brightness" 2>/dev/null | tr -d '\n')
+    case "$b" in
+        ''|*[!0-9]*) cat "$FBNAME/blank" 2>/dev/null | tr -d '\n' ;;
+        0) echo 1 ;;
+        *) echo 0 ;;
+    esac
 }
 
 fsize() {
@@ -125,7 +153,8 @@ case "$1" in
         ;;
     snapshot) do_snapshot "$@" ;;
     status)
-        echo "fb=$(cat $FBNAME/name 2>/dev/null) vsize=$(cat $FBNAME/virtual_size 2>/dev/null) blank=$(fb_state)"
+        echo "fb=$(cat $FBNAME/name 2>/dev/null) vsize=$(cat $FBNAME/virtual_size 2>/dev/null) state=$(fb_state)"
+        echo "backlight brightness=$(cat $BLDIR/brightness 2>/dev/null)/$(cat $BLDIR/max_brightness 2>/dev/null)"
         if [ -d "$D" ]; then
             echo "gpio$GPIO dir=$(cat $D/direction) val=$(cat $D/value) polarity=$(g polarity)"
         else

@@ -1,7 +1,11 @@
 {
     "admin/services/e87n": {
         "title": "E87N 控制",
-        "order": 60
+        "order": 60,
+        "action": {
+            "type": "view",
+            "path": "e87n/fan"
+        }
     },
     "admin/services/e87n/fan": {
         "title": "风扇控制",
@@ -9,6 +13,9 @@
         "action": {
             "type": "view",
             "path": "e87n/fan"
+        },
+        "depends": {
+            "acl": [ "luci-app-e87n" ]
         }
     },
     "admin/services/e87n/screen": {
@@ -17,6 +24,9 @@
         "action": {
             "type": "view",
             "path": "e87n/screen"
+        },
+        "depends": {
+            "acl": [ "luci-app-e87n" ]
         }
     }
 }

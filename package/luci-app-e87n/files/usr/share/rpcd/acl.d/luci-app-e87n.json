@@ -1,6 +1,27 @@
 {
     "luci-app-e87n": {
         "title": "E87N 风扇与屏幕控制",
-        "description": "Grant access to E87N fan/screen LuCI page"
+        "description": "Grant access to E87N fan/screen LuCI page",
+        "read": {
+            "cgi-io": [ "exec" ],
+            "file": {
+                "/www/cgi-bin/e87n": [ "exec" ],
+                "/usr/bin/fanctl": [ "exec" ],
+                "/usr/sbin/screen-ctl": [ "exec" ],
+                "/sys/class/backlight/backlight/brightness": [ "read" ],
+                "/sys/class/graphics/fb0/blank": [ "read" ]
+            },
+            "ubus": {
+                "luci": [ "getMenu" ]
+            },
+            "uci": [ "fan", "screen", "e87n-display" ]
+        },
+        "write": {
+            "file": {
+                "/sys/class/backlight/backlight/brightness": [ "write" ],
+                "/sys/class/graphics/fb0/blank": [ "write" ]
+            },
+            "uci": [ "fan", "screen", "e87n-display" ]
+        }
     }
 }
