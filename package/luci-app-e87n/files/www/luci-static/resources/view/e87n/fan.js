@@ -52,7 +52,7 @@ return view.extend({
         var modeCard = el('div', null, { class: 'cbi-section cbi-section-node' });
         var modeRow = el('div', null, { class: 'cbi-value' });
         modeRow.appendChild(el('label', '模式', { class: 'cbi-value-title' }));
-        var modeWrap = el('div', { class: 'cbi-value-field' });
+        var modeWrap = el('div', null, { class: 'cbi-value-field' });
         var modeSel = el('select', null, { id: 'fan-mode' });
         [['auto', '自动（按温度曲线）'], ['manual', '手动'], ['off', '关闭']].forEach(function (o) {
             var opt = el('option', o[1]);
@@ -66,7 +66,7 @@ return view.extend({
         /* 手动 PWM */
         var pwmRow = el('div', null, { class: 'cbi-value', id: 'pwm-row', style: 'display:none' });
         pwmRow.appendChild(el('label', '手动 PWM (0-255)', { class: 'cbi-value-title' }));
-        var pwmWrap = el('div', { class: 'cbi-value-field' });
+        var pwmWrap = el('div', null, { class: 'cbi-value-field' });
         var pwmRange = el('input', null, { id: 'fan-pwm', type: 'range', min: '0', max: '255', value: '128' });
         var pwmOut = el('span', '128 / 255', { class: 'cbi-value-description' });
         pwmRange.addEventListener('input', function () {

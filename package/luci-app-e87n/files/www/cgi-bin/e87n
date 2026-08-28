@@ -180,6 +180,20 @@ case "$ACTION" in
             head -c "$SZ" | openssl base64 -A 2>/dev/null
         printf '"}\n'
         ;;
+    import_frame)
+        # POST body = 原始 RGB565 little-endian 帧（142x428，121552 字节），
+        # 由浏览器端 canvas 转换后上传。保存并用 screen-ctl raw 显示。
+        TMP=/tmp/e87n-frame.raw
+        cat > "$TMP" 2>/dev/null
+        SIZE=$(wc -c < "$TMP" 2>/dev/null | tr -d ' ')
+        if [ -z "$SIZE" ] || [ "$SIZE" -lt 100 ]; then
+            rm -f "$TMP"
+            printf '{"ok":0,"err":"frame too small (%s bytes)"}\n' "$SIZE"
+            exit 0
+        fi
+        OUT=$(/usr/sbin/screen-ctl raw "$TMP" 2>&1); RC=$?
+        printf '{"ok":%s,"size":%s,"out":"%s"}\n' "$([ $RC -eq 0 ] && echo 1 || echo 0)" "$SIZE" "$(json_esc "$OUT")"
+        ;;
     *)
         printf '{"ok":0,"err":"unknown action"}\n'
         ;;

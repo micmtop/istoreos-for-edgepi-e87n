@@ -75,7 +75,7 @@ calc_pwm() {
 
 do_run() {
     local temp_path pwm_path divisor pwm_max interval mode manual hysteresis
-    local cur_temp t_c new_pwm last_pwm="" last_temp="" enable_path
+    local cur_temp t_c new_pwm last_pwm="" last_temp="" enable_path last_mode=""
 
     while :; do
         temp_path=$(uci_get temp_path)
@@ -86,6 +86,14 @@ do_run() {
         mode=$(uci_get mode);             mode="${mode:-auto}"
         manual=$(uci_get manual_pwm);     manual="${manual:-128}"
         hysteresis=$(uci_get hysteresis); hysteresis="${hysteresis:-3}"
+
+        # mode 变化（如 manual/off -> auto）时重置滞回状态，避免沿用手动 PWM 值
+        if [ "$mode" != "$last_mode" ]; then
+            last_pwm=""
+            last_temp=""
+            last_mode="$mode"
+            logger -t fan-control "mode changed -> $mode, reset hysteresis"
+        fi
 
         [ -n "$temp_path" ] || temp_path=$(detect_temp)
         [ -n "$pwm_path" ]  || pwm_path=$(detect_pwm)
