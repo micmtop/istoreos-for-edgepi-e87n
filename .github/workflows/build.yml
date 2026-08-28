@@ -26,13 +26,12 @@ jobs:
           ccache --set-config=compression=true
           ccache --set-config=compression_level=1
           echo "ccache: $(ccache --version | head -1)"
-          # IMPORTANT: force ccache's cache dir to the path the actions/cache
-          # step below restores/saves (~/.cache/ccache). OpenWrt's default
-          # CCACHE_DIR is $(TOPDIR)/.ccache (build/istoreos/.ccache), which
-          # actions/cache never touches, so the ccache cache was empty on both
-          # restore AND save (Post Cache step took 1s). Pinning CCACHE_DIR here
-          # makes ccache actually write where the cache step expects it.
-          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+          # IMPORTANT: do NOT try to point CCACHE_DIR here. iStoreOS/OpenWrt
+          # rules.mk hard-assigns + exports CCACHE_DIR to $(TOPDIR)/.ccache
+          # (build/istoreos/.ccache) unless CONFIG_CCACHE_DIR is set, so any
+          # env override from this workflow is clobbered the moment make runs.
+          # The actions/cache step below therefore caches build/istoreos/.ccache
+          # directly (same path pattern as the dl/toolchain caches).
           echo "=== disk after deps ==="
           df -h
 
@@ -82,16 +81,19 @@ jobs:
             ${{ runner.os }}-toolchain-
 
       - name: Cache ccache (kernel + package compile objects)
-        # IMPORTANT: key MUST NOT depend on files under build/files/** or
-        # apply.sh. Those are the DTS/patch sources we edit on every fix, so
-        # hashing them invalidates the WHOLE ccache on every commit (the
-        # cache is then never hit). ccache is content-addressed: it only needs
-        # the restored ~/.cache/ccache dir, and it hits per-object regardless
-        # of this key. Pin the key to a stable constant + restore-keys prefix
-        # so the dir is always restored and ccache does the real work.
+        # IMPORTANT: cache build/istoreos/.ccache, NOT ~/.cache/ccache. Even
+        # though this workflow used to export CCACHE_DIR=$HOME/.cache/ccache,
+        # iStoreOS rules.mk re-assigns+exports CCACHE_DIR=$(TOPDIR)/.ccache on
+        # every make invocation (unless CONFIG_CCACHE_DIR is configured), so
+        # all ccache objects land in build/istoreos/.ccache. Caching the wrong
+        # path meant: restore always said "Cache not found", and the Post save
+        # had no real data to upload -> no Linux-ccache entry ever appeared.
+        # Key MUST NOT depend on build/files/** or apply.sh (edited on every
+        # fix; they would invalidate the WHOLE cache each commit). ccache is
+        # content-addressed, so a stable key + restore-keys prefix is right.
         uses: actions/cache@v4
         with:
-          path: ~/.cache/ccache
+          path: build/istoreos/.ccache
           key: ${{ runner.os }}-ccache-v1
           restore-keys: |
             ${{ runner.os }}-ccache-
