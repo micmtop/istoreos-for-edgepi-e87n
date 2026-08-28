@@ -5,12 +5,12 @@
 > **【临时警告】屏幕功能未经实机验证**
 > 作者本人的 E87N 屏幕排线座已损坏，无法点亮屏幕。本固件的屏幕驱动（`fb_nv3007`）与背光虽已实现并编译进内核，但**未经真机测试**（初始化序列参考 Arduino_GFX / LVGL 官方 NV3007 驱动移植，理论上完整，不保证实机正常）。刷入此固件后，请自行验证屏幕显示与背光是否工作。
 
-## 新功能介绍（相对原厂 HiGoROS）
+## 功能一览
 
 - 硬件 NAT：MT7987 PPE flow offload（`kmod-nft-offload` / `kmod-ipt-offload`，firewall 默认启用），充分发挥双 2.5G 性能
 - 风扇控制：LuCI 风扇百分比控制 + 曲线配置（fan-control）
 - 屏幕控制：luci-app-e87n，支持自定义显示（LVGL 应用上传与预览）、背光控制
-- 存储修复：overlay 改用 fstools `rootfs_data`，不再占用 p3（FIP/U-Boot）分区——修复了原 iStoreOS 启动脚本把 p3 当 overlay、每次开机覆盖 U-Boot 的严重缺陷
+- **存储修复：overlay 改用 fstools `rootfs_data`，不再占用 p3（FIP/U-Boot）分区——修复了原 iStoreOS 启动脚本把 p3 当 overlay、每次开机覆盖 U-Boot 的严重缺陷**
 - 系统升级：sysupgrade 走 `emmc_do_upgrade`，同时更新 p4 内核 FIT 与 p5 rootfs（修复原 nand/emmc 分支判断错误）
 - 网口：`en8811h` 驱动，eth0/eth1 双 2.5G 正常工作
 
@@ -40,11 +40,7 @@
 
 ### 通过 GitHub Actions（推荐）
 
-推送到仓库 `main` 分支（代码变更）即触发构建，也可在 Actions 页面手动 `Run workflow` 触发（`.github/workflows/build.yml`；仅改 `*.md` 等文档不会触发）。产物在 Actions 的 `e87n-istoreos-firmware` artifact 中。
-
-### fork 自编译（使用者）
-
-不想直接用现成固件、想在自己账号下自己构建的，按以下步骤：
+虽然可以直接用作者编译好的现成固件，但想在自己账号下自己构建的也可按以下步骤：
 
 1. **Fork 仓库**：访问 [micmtop/istoreos-for-edgepi-e87n](https://github.com/micmtop/istoreos-for-edgepi-e87n)，点击右上角 `Fork`。
 2. **启用 GitHub Actions**：Fork 后进入自己的仓库 → `Settings` → `Actions` → `General` → `Actions permissions` 选择 **Allow all actions and reusable workflows** → 保存。（Fork 默认禁用 Actions，必须手动开启）
