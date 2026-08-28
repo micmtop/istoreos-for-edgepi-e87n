@@ -9,7 +9,7 @@
 
 - 硬件 NAT：MT7987 PPE flow offload（`kmod-nft-offload` / `kmod-ipt-offload`，firewall 默认启用），充分发挥双 2.5G 性能
 - 风扇控制：LuCI 风扇百分比控制 + 曲线配置（fan-control）
-- 屏幕控制：luci-app-e87n，支持自定义显示（LVGL 应用上传与预览）、背光控制
+- 屏幕控制：luci-app-e87n，支持自定义显示（LVGL 应用上传与预览）、背光控制 **（目前未验证功能是否有效）**
 - **存储修复：overlay 改用 fstools `rootfs_data`，不再占用 p3（FIP/U-Boot）分区——修复了原 iStoreOS 启动脚本把 p3 当 overlay、每次开机覆盖 U-Boot 的严重缺陷**
 - 系统升级：sysupgrade 走 `emmc_do_upgrade`，同时更新 p4 内核 FIT 与 p5 rootfs（修复原 nand/emmc 分支判断错误）
 - 网口：`en8811h` 驱动，eth0/eth1 双 2.5G 正常工作
@@ -26,6 +26,8 @@
 | 风扇 | PWM 风扇（内核 channel 1, 20kHz） |
 | WiFi | 无（E87N 无 WiFi 功能） |
 
+~~没考虑大家的"创意工坊"~~
+
 ## 已实现功能
 
 - 网口：`en8811h` 驱动，eth0（LAN）+ eth1（WAN），2.5G 速率
@@ -34,7 +36,8 @@
 - 硬件 NAT：MT7987 PPE flow offload（`kmod-nft-offload` / `kmod-ipt-offload`，firewall 默认启用）
 - 存储：eMMC rootfs + f2fs overlay（fstools `rootfs_data`，不占用 FIP/U-Boot 分区）
 - 系统升级：sysupgrade（`emmc_do_upgrade`，同时更新 kernel 与 rootfs 分区）
-- WebUI：LuCI + 快速向导（quickstart）+ E87N 风扇/屏幕/LVGL 上传控制（luci-app-e87n）
+- WebUI：LuCI + 快速向导（quickstart）+ E87N 风扇/屏幕/LVGL 上传控制（luci-app-e87n） **（目前未验证屏幕功能是否有效）**
+- 注：当前固件未内建docker
 
 ## 构建方法
 
@@ -90,7 +93,8 @@ sysupgrade 会通过 `emmc_do_upgrade` 同时更新 p4（kernel FIT）与 p5（r
 - 写 eMMC 必须使用分区设备（`/dev/mmcblk0pN`），绝不用整盘
 - U-Boot 环境：`bootcmd=mtkautoboot`、`button_cmd_0_name=reset`、`button_cmd_0=httpd`
 - 若 U-Boot 无法启动，需通过 TTL 串口（3.3V，115200 8N1）使用 `mtk_uartboot` RAM boot 恢复
+- ~~作者也都踩坑过~~
 
 ## 免责声明
 
-刷机有变砖风险，请自行评估后再操作。本项目按现状提供，不保证任何功能在您的设备上可用。
+刷机有变砖风险，请自行评估后再操作。本项目按现状提供，不保证任何功能在您的设备上可用（在这里也欢迎大家来提issue）。
