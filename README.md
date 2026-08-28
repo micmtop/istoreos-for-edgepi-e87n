@@ -40,7 +40,25 @@
 
 ### 通过 GitHub Actions（推荐）
 
-推送到仓库 `main` 分支即可触发构建（`.github/workflows/build.yml`）。产物在 Actions 的 `e87n-istoreos-firmware` artifact 中。
+推送到仓库 `main` 分支（代码变更）即触发构建，也可在 Actions 页面手动 `Run workflow` 触发（`.github/workflows/build.yml`；仅改 `*.md` 等文档不会触发）。产物在 Actions 的 `e87n-istoreos-firmware` artifact 中。
+
+### fork 自编译（使用者）
+
+不想直接用现成固件、想在自己账号下自己构建的，按以下步骤：
+
+1. **Fork 仓库**：访问 [micmtop/istoreos-for-edgepi-e87n](https://github.com/micmtop/istoreos-for-edgepi-e87n)，点击右上角 `Fork`。
+2. **启用 GitHub Actions**：Fork 后进入自己的仓库 → `Settings` → `Actions` → `General` → `Actions permissions` 选择 **Allow all actions and reusable workflows** → 保存。（Fork 默认禁用 Actions，必须手动开启）
+3. **触发构建**（二选一）：
+   - 手动：`Actions` → 左侧 `E87N Build` → 右侧 `Run workflow` → 选 `main` 分支 → `Run workflow`。无需改任何代码即可构建。
+   - 自动：修改代码后推送到自己仓库的 `main` 分支（仅改 `*.md` 等文档不会触发）。
+4. **等待构建**：首次构建无缓存（dl/工具链/ccache 都在原仓库，fork 是全新的），需全量下载依赖并编译，耗时较长；之后再次构建会命中缓存，明显加快。
+5. **下载固件**：构建完成后，进入该次运行的页面 → 底部 `Artifacts` → 下载 `e87n-istoreos-firmware`，解压得到 `istoreos-mediatek-filogic-edgepi_e87n-squashfs-sysupgrade.bin`。
+6. **刷机**：见下文"刷机方法"。
+
+注意事项：
+
+- 本仓库不含 iStoreOS 源码与工具链，构建时由 Actions 自动克隆 iStoreOS 24.10 并应用补丁（`apply.sh` + `e87n.config`），fork 后无需额外配置。
+- 如需定制：修改 `e87n.config` 可增删预装软件包，修改 `package/`、`files/` 可加自定义程序与驱动/补丁，改完重新构建即可。
 
 ### 本地构建
 
