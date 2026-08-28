@@ -29,6 +29,12 @@ fi
 exit 0
 endef
 
+# Pure file package (no src/): the default Build/Compile tries to run
+# `make -C $(PKG_BUILD_DIR)` and fails with "No targets specified and no
+# makefile found". Override it to a no-op so only the install step runs.
+define Build/Compile
+endef
+
 define Package/luci-app-e87n/install
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
 	$(INSTALL_DATA) \
@@ -40,11 +46,11 @@ define Package/luci-app-e87n/install
 		$(1)/usr/share/rpcd/acl.d/luci-app-e87n.json
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/e87n
 	$(INSTALL_DATA) \
-		./files/www/luci-static/resources/view/e87n/overview.js \
-		$(1)/www/luci-static/resources/view/e87n/overview.js
+		./files/www/luci-static/resources/view/e87n/fan.js \
+		$(1)/www/luci-static/resources/view/e87n/fan.js
 	$(INSTALL_DATA) \
-		./files/www/luci-static/resources/e87n.js \
-		$(1)/www/luci-static/resources/e87n.js
+		./files/www/luci-static/resources/view/e87n/screen.js \
+		$(1)/www/luci-static/resources/view/e87n/screen.js
 	$(INSTALL_DIR) $(1)/www/cgi-bin
 	$(INSTALL_BIN) \
 		./files/www/cgi-bin/e87n \
