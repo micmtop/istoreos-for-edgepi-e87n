@@ -2,6 +2,21 @@
 
 为 EdgePi (Hiveton) E87N 路由器编译的 iStoreOS 固件。基于 OpenWrt 24.10（iStoreOS 分支），内核 6.6。
 
+> **【临时警告】屏幕功能未经实机验证**
+> 作者本人的 E87N 屏幕排线座已损坏，无法点亮屏幕。本固件的屏幕驱动（`fb_nv3007`）与背光虽已实现并编译进内核，但**未经真机测试**（初始化序列参考 Arduino_GFX / LVGL 官方 NV3007 驱动移植，理论上完整，不保证实机正常）。刷入此固件后，请自行验证屏幕显示与背光是否工作。
+
+> **【提示】本固件不会改动 U-Boot/FIP**
+> 作者调试过程中曾将自己机器的 BL2 与 FIP（p3 分区）换成自建配对版本。**本固件的 sysupgrade 包内仅含 kernel 与 rootfs，不含 BL2/FIP**，刷写不影响 eMMC 引导区 BL2 与 p3 FIP 分区。因此**别人的原厂机器（官方 BL2/FIP）直接刷本固件不受影响**，无需先修改 U-Boot。
+
+## 新功能介绍（相对原厂 HiGoROS）
+
+- 硬件 NAT：MT7987 PPE flow offload（`kmod-nft-offload` / `kmod-ipt-offload`，firewall 默认启用），充分发挥双 2.5G 性能
+- 风扇控制：LuCI 风扇百分比控制 + 曲线配置（fan-control）
+- 屏幕控制：luci-app-e87n，支持自定义显示（LVGL 应用上传与预览）、背光控制
+- 存储修复：overlay 改用 fstools `rootfs_data`，不再占用 p3（FIP/U-Boot）分区——修复了原 iStoreOS 启动脚本把 p3 当 overlay、每次开机覆盖 U-Boot 的严重缺陷
+- 系统升级：sysupgrade 走 `emmc_do_upgrade`，同时更新 p4 内核 FIT 与 p5 rootfs（修复原 nand/emmc 分支判断错误）
+- 网口：`en8811h` 驱动，eth0/eth1 双 2.5G 正常工作
+
 ## 硬件概览
 
 | 组件 | 规格 |
@@ -23,16 +38,6 @@
 - 存储：eMMC rootfs + f2fs overlay（fstools `rootfs_data`，不占用 FIP/U-Boot 分区）
 - 系统升级：sysupgrade（`emmc_do_upgrade`，同时更新 kernel 与 rootfs 分区）
 - WebUI：LuCI + 快速向导（quickstart）+ E87N 风扇/屏幕/LVGL 上传控制（luci-app-e87n）
-
-## 重要声明：屏幕功能未经测试
-
-**注意：本固件的屏幕功能（显示与背光）未经实机验证。**
-
-作者本人的 E87N 屏幕排线座已损坏，无法点亮屏幕，因此：
-
-- 屏幕驱动（`fb_nv3007`）与背光（`pwm-backlight`）虽然已实现并编译进固件，但**未经过真机测试**；
-- 屏幕初始化序列参考 Arduino_GFX / LVGL 官方 NV3007 驱动移植，理论上完整，但不保证在实机上正常；
-- 刷入此固件后，请自行验证屏幕显示与背光是否工作。
 
 ## 构建方法
 
