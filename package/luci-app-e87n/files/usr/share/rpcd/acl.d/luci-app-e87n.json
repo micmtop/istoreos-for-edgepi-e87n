@@ -8,7 +8,8 @@
                 "/www/cgi-bin/e87n": [ "exec" ],
                 "/usr/bin/fanctl": [ "exec" ],
                 "/usr/sbin/screen-ctl": [ "exec" ],
-                "/sys/class/backlight/backlight/brightness": [ "read" ],
+                "/usr/bin/e87n-app-custom": [ "exec" ],
+                "/sys/class/gpio/gpio524/value": [ "read" ],
                 "/sys/class/graphics/fb0/blank": [ "read" ]
             },
             "ubus": {
@@ -18,7 +19,7 @@
         },
         "write": {
             "file": {
-                "/sys/class/backlight/backlight/brightness": [ "write" ],
+                "/sys/class/gpio/gpio524/value": [ "write" ],
                 "/sys/class/graphics/fb0/blank": [ "write" ]
             },
             "uci": [ "fan", "screen", "e87n-display" ]

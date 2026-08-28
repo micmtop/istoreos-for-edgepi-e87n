@@ -1,0 +1,9 @@
+#!/bin/sh
+# E87N: 启用流量分载（flow offloading）。
+# flow_offloading=1  软件 flowtable 加速
+# flow_offloading_hw=1  硬件 PPE 分载（MT7987 内核已含 mtk_ppe，FOE 已可写入；
+#   BOUND 生效依赖真实 NAT 转发流量）
+uci -q set firewall.@defaults[0].flow_offloading='1'
+uci -q set firewall.@defaults[0].flow_offloading_hw='1'
+uci -q commit firewall
+exit 0

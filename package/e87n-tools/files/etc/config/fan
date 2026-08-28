@@ -20,9 +20,10 @@ config fan 'global'
 	option manual_pwm '128'
 	# 温控滞回(℃), 防止温度在档位边缘抖动
 	option hysteresis '3'
-	# 温控曲线: 温度(℃) -> PWM(0-255), 线性插值
+	# 温控曲线: 温度(℃) -> 风速百分比(0-100), 线性插值。
+	# fan-control 内部换算 PWM = percent * pwm_max / 100。
 	list curve '35:0'
-	list curve '45:90'
-	list curve '55:140'
-	list curve '65:200'
-	list curve '75:255'
+	list curve '45:35'
+	list curve '55:55'
+	list curve '65:78'
+	list curve '75:100'

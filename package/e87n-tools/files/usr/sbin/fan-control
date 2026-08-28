@@ -40,18 +40,19 @@ dump_curve() {
     uci -q get fan.global.curve 2>/dev/null | tr -d "'" | tr ' ' '\n' | grep -v '^$' > /tmp/fan-curve.$$
 }
 
-# 按曲线(℃->PWM)线性插值；$1=温度(℃) $2=pwm_max
+# 按曲线(℃->风速%)线性插值；$1=温度(℃) $2=pwm_max。
+# 曲线点格式 temp:percent（0-100），最终输出 PWM = percent * pwm_max / 100。
 calc_pwm() {
     local t=$1 pwm_max=$2
-    local temp pwm lower_t="" lower_p="" upper_t="" upper_p=""
+    local temp pct lower_t="" lower_p="" upper_t="" upper_p=""
     local lnum=0
     dump_curve
-    while IFS=':' read -r temp pwm; do
+    while IFS=':' read -r temp pct; do
         [ -n "$temp" ] || continue
         if [ "$t" -ge "$temp" ]; then
-            lower_t=$temp; lower_p=$pwm
+            lower_t=$temp; lower_p=$pct
         elif [ -z "$upper_t" ]; then
-            upper_t=$temp; upper_p=$pwm
+            upper_t=$temp; upper_p=$pct
         fi
     done < /tmp/fan-curve.$$
     rm -f /tmp/fan-curve.$$
@@ -61,16 +62,20 @@ calc_pwm() {
     [ -z "$lower_t" ] && { echo 0; return; }
     # 高于最高点
     [ -z "$upper_t" ] && { echo "${lower_p:-0}"; return; }
-    # 线性插值在 (lower, upper]
+    # 线性插值在 (lower, upper] 得到 percent
+    local pct_out=0
     if [ "$upper_t" -gt "$lower_t" ]; then
         local denom=$(( upper_t - lower_t ))
-        local pwm_range=$(( upper_p - lower_p ))
-        local p=$(( lower_p + (t - lower_t) * pwm_range / denom ))
-        [ "$p" -lt 0 ] && p=0
-        [ "$p" -gt "$pwm_max" ] && p=$pwm_max
-        echo "$p"; return
+        local pct_range=$(( upper_p - lower_p ))
+        pct_out=$(( lower_p + (t - lower_t) * pct_range / denom ))
+    else
+        pct_out=${lower_p:-0}
     fi
-    echo "${lower_p:-0}"
+    [ "$pct_out" -lt 0 ] && pct_out=0
+    [ "$pct_out" -gt 100 ] && pct_out=100
+    # percent -> PWM (0..pwm_max)
+    local p=$(( pct_out * pwm_max / 100 ))
+    echo "$p"
 }
 
 do_run() {

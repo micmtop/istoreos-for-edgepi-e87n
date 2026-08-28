@@ -33,33 +33,22 @@ qparam() {
 
 ACTION=$(qparam action)
 
-# 背光状态：优先 pwm-backlight brightness（反逻辑：低=亮 max=灭），其次 fb0/blank
+# 背光状态：优先 GPIO524（原厂 start_display 方案：低电平有效 0=亮），
+# 其次 fb0/blank。pwm-backlight 已禁用，不再读 backlight sysfs。
 BACKLIGHT="unknown"
-BLDIR=/sys/class/backlight/backlight
-BLMAX=$(cat "$BLDIR/max_brightness" 2>/dev/null | tr -d '\n'); BLMAX=${BLMAX:-26}
-if [ -r "$BLDIR/brightness" ]; then
-    BL=$(cat "$BLDIR/brightness" 2>/dev/null | tr -d '\n')
-    case "$BL" in
-        ''|*[!0-9]*) ;;
-        "$BLMAX") BACKLIGHT="off" ;;
-        0) BACKLIGHT="on" ;;
-        *) [ "$BL" -lt "$((BLMAX/2))" ] && BACKLIGHT="on" || BACKLIGHT="off" ;;
-    esac
+GPIO_N=$(uci -q get screen.global.gpio 2>/dev/null); GPIO_N=${GPIO_N:-524}
+POL=$(uci -q get screen.global.polarity 2>/dev/null); POL=${POL:-low}
+if [ -r "/sys/class/gpio/gpio$GPIO_N/value" ]; then
+    V=$(cat "/sys/class/gpio/gpio$GPIO_N/value" 2>/dev/null)
+    if [ "$POL" = "low" ]; then
+        [ "$V" = "0" ] && BACKLIGHT="on" || BACKLIGHT="off"
+    else
+        [ "$V" = "1" ] && BACKLIGHT="on" || BACKLIGHT="off"
+    fi
 elif [ -r /sys/class/graphics/fb0/blank ]; then
     BL=$(cat /sys/class/graphics/fb0/blank 2>/dev/null | tr -d '\n')
     [ "$BL" = "0" ] && BACKLIGHT="on"
     [ "$BL" = "1" ] && BACKLIGHT="off"
-else
-    GPIO_N=$(uci -q get screen.global.gpio 2>/dev/null); GPIO_N=${GPIO_N:-524}
-    if [ -r "/sys/class/gpio/gpio$GPIO_N/value" ]; then
-        POL=$(uci -q get screen.global.polarity 2>/dev/null); POL=${POL:-low}
-        V=$(cat "/sys/class/gpio/gpio$GPIO_N/value" 2>/dev/null)
-        if [ "$POL" = "low" ]; then
-            [ "$V" = "0" ] && BACKLIGHT="on" || BACKLIGHT="off"
-        else
-            [ "$V" = "1" ] && BACKLIGHT="on" || BACKLIGHT="off"
-        fi
-    fi
 fi
 
 case "$ACTION" in
@@ -83,17 +72,25 @@ case "$ACTION" in
         DISP_PAGE=$(uci -q get e87n-display.global.page 2>/dev/null); DISP_PAGE=${DISP_PAGE:-1}
         DISP_CYCLE=$(uci -q get e87n-display.global.cycle_seconds 2>/dev/null); DISP_CYCLE=${DISP_CYCLE:-10}
 
-        # 温控曲线: 从 uci list 逐行输出
+        # 温控曲线: 从 uci list 逐行输出（格式 temp:percent，0-100）
         CURVE_JSON=""
         SEP=""
         echo "$(uci -q get fan.global.curve 2>/dev/null)" | tr ' ' '\n' | grep -v '^$' | while read -r pt; do
             pt=$(echo "$pt" | tr -d "'")
             [ -z "$pt" ] && continue
             t=${pt%%:*}; p=${pt##*:}
-            printf '%s{"t":%s,"pwm":%s}' "$SEP" "${t%%[!0-9]*}" "${p%%[!0-9]*}"
+            printf '%s{"t":%s,"pct":%s}' "$SEP" "${t%%[!0-9]*}" "${p%%[!0-9]*}"
             SEP=","
         done > /tmp/e87n-curve.json
         CURVE_JSON=$(cat /tmp/e87n-curve.json 2>/dev/null); rm -f /tmp/e87n-curve.json
+
+        # 当前 PWM -> 风速百分比 (percent = pwm / pwm_max * 100)
+        PWM_MAX=$(uci -q get fan.global.pwm_max 2>/dev/null); PWM_MAX=${PWM_MAX:-255}
+        PWM_PCT="null"
+        case "$PWM" in
+            ''|*[!0-9]*) ;;
+            *) PWM_PCT=$(( PWM * 100 / PWM_MAX )) ;;
+        esac
 
         FB_W=""; FB_H=""
         if [ -r /sys/class/graphics/fb0/virtual_size ]; then
@@ -101,13 +98,25 @@ case "$ACTION" in
         fi
 
         printf '{"ok":1,'
-        printf '"temp":%s,"pwm":%s,"manual_pwm":%s,' "$TEMP" "$PWM" "$MANUAL_PWM"
+        printf '"temp":%s,"pwm":%s,"pwm_pct":%s,"manual_pwm":%s,' "$TEMP" "$PWM" "$PWM_PCT" "$MANUAL_PWM"
         printf '"curve":[%s],' "$CURVE_JSON"
         printf '"fan":{"mode":"%s","enabled":%s,"running":%s},' "$FAN_MODE" "$FAN_ENABLED" "$fan_run"
         printf '"screen":{"state":"%s"},' "$BACKLIGHT"
         printf '"display":{"running":%s,"page":"%s","cycle":%s},' "$disp_run" "$DISP_PAGE" "$DISP_CYCLE"
         printf '"fb":{"w":%s,"h":%s}' "${FB_W:-null}" "${FB_H:-null}"
         printf '}\n'
+        ;;
+    set_curve)
+        # 保存温控曲线（百分比）：curve=35:0,45:35,55:55,65:78,75:100
+        CV=$(qparam curve)
+        [ -z "$CV" ] && { printf '{"ok":0,"err":"curve required"}\n'; exit 0; }
+        uci -q delete fan.global.curve 2>/dev/null
+        echo "$CV" | tr ',' '\n' | grep -E '^[0-9]+:[0-9]+$' | while read -r pt; do
+            uci -q add_list fan.global.curve="$pt"
+        done
+        uci -q commit fan
+        /usr/sbin/fan-control reload >/dev/null 2>&1
+        printf '{"ok":1}\n'
         ;;
     set_fan)
         M=$(qparam mode)
@@ -195,6 +204,70 @@ case "$ACTION" in
         fi
         OUT=$(/usr/sbin/screen-ctl raw "$TMP" 2>&1); RC=$?
         printf '{"ok":%s,"size":%s,"out":"%s"}\n' "$([ $RC -eq 0 ] && echo 1 || echo 0)" "$SIZE" "$(json_esc "$OUT")"
+        ;;
+    import_app)
+        # POST body = 交叉编译好的 aarch64 自定义显示程序（LVGL 工程产物 ELF）。
+        # 校验 ELF 魔数 + 架构，部署到 /usr/bin/e87n-app-custom 并可选启动。
+        TMP=/tmp/e87n-app.bin
+        cat > "$TMP" 2>/dev/null
+        SIZE=$(wc -c < "$TMP" 2>/dev/null | tr -d ' ')
+        if [ -z "$SIZE" ] || [ "$SIZE" -lt 1000 ]; then
+            rm -f "$TMP"
+            printf '{"ok":0,"err":"app too small (%s bytes)"}\n' "$SIZE"
+            exit 0
+        fi
+        if [ "$SIZE" -gt 20971520 ]; then
+            rm -f "$TMP"
+            printf '{"ok":0,"err":"app too large (>20MB)"}\n'
+            exit 0
+        fi
+        MAGIC=$(dd if="$TMP" bs=1 count=4 2>/dev/null | hexdump -v -e '4/1 "%02x"')
+        if [ "$MAGIC" != "7f454c46" ]; then
+            rm -f "$TMP"
+            printf '{"ok":0,"err":"not an ELF binary"}\n'
+            exit 0
+        fi
+        EM=$(dd if="$TMP" bs=1 skip=18 count=2 2>/dev/null | od -An -tu2 | tr -d ' ')
+        if [ "$EM" != "183" ]; then
+            rm -f "$TMP"
+            printf '{"ok":0,"err":"not aarch64 ELF (e_machine=%s)"}\n' "$EM"
+            exit 0
+        fi
+        mkdir -p /usr/bin
+        cp "$TMP" /usr/bin/e87n-app-custom
+        chmod 755 /usr/bin/e87n-app-custom
+        rm -f "$TMP"
+        printf '{"ok":1,"size":%s,"out":"installed to /usr/bin/e87n-app-custom"}\n' "$SIZE"
+        ;;
+    app)
+        # 自定义显示程序管理: cmd=start|stop|status|remove
+        A=$(qparam cmd)
+        case "$A" in
+            start)
+                if [ -x /usr/bin/e87n-app-custom ]; then
+                    pkill -f e87n-app-custom 2>/dev/null; sleep 1
+                    /usr/bin/e87n-app-custom >/dev/null 2>&1 &
+                    printf '{"ok":1,"out":"custom app started"}\n'
+                else
+                    printf '{"ok":0,"err":"no custom app installed"}\n'
+                fi
+                ;;
+            stop)
+                pkill -f e87n-app-custom 2>/dev/null
+                printf '{"ok":1,"out":"custom app stopped"}\n'
+                ;;
+            status)
+                PIDOF=$(pidof e87n-app-custom 2>/dev/null); [ -n "$PIDOF" ] && run=1 || run=0
+                [ -x /usr/bin/e87n-app-custom ] && has=1 || has=0
+                printf '{"ok":1,"running":%s,"installed":%s}\n' "$run" "$has"
+                ;;
+            remove)
+                pkill -f e87n-app-custom 2>/dev/null
+                rm -f /usr/bin/e87n-app-custom
+                printf '{"ok":1,"out":"custom app removed"}\n'
+                ;;
+            *) printf '{"ok":0,"err":"bad cmd"}\n' ;;
+        esac
         ;;
     *)
         printf '{"ok":0,"err":"unknown action"}\n'

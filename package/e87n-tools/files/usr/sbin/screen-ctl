@@ -48,28 +48,12 @@ gpio_write() {
 }
 
 # 写入背光：want=1 亮 / 0 灭。
-# 主路径 = pwm-backlight brightness，但 E87N 背光为反逻辑（原厂语义）：
-#   brightness 低 = 亮，brightness = max = 灭。原厂 turn_off 写 max_brightness 关屏。
+# 主路径 = GPIO524（原厂 HiGoROS start_display 方案）：
+#   echo 524 > export; echo out > direction; 0=亮 1=灭（低电平有效）。
+# DTS 已禁用 pwm-backlight，避免占用 GPIO524。
 bl_set() {
     local want=$1
-    if [ -w "$BLDIR/brightness" ]; then
-        local max cur def
-        max=$(cat "$BLDIR/max_brightness" 2>/dev/null | tr -d '\n')
-        [ -n "$max" ] || max=26
-        if [ "$want" = "1" ]; then
-            cur=$(cat "$BLDIR/brightness" 2>/dev/null | tr -d '\n')
-            case "$cur" in
-                ''|"$max")
-                    def=$(g brightness); def=${def:-$BL_DEFAULT}
-                    [ "$def" -gt "$max" ] && def=$max
-                    echo "$def" > "$BLDIR/brightness" 2>/dev/null
-                    ;;
-            esac
-        else
-            echo "$max" > "$BLDIR/brightness" 2>/dev/null
-        fi
-        return 0
-    fi
+    gpio_write "$want" && return 0
     # 回退: fbtft fb0/blank (0=unblank亮 1=blank灭)
     if [ -w "$FBNAME/blank" ]; then
         if [ "$want" = "1" ]; then
@@ -77,26 +61,26 @@ bl_set() {
         else
             echo 1 > "$FBNAME/blank" 2>/dev/null
         fi
-        gpio_write "$want"
         return 0
     fi
-    # 最后回退: GPIO
-    gpio_write "$want" && return 0
     echo "screen-ctl: backlight control unavailable" >&2
     return 1
 }
 
 fb_state() {
-    # 0=亮 1=灭；反逻辑：brightness=0 最亮，brightness=max 灭
-    local b max
-    b=$(cat "$BLDIR/brightness" 2>/dev/null | tr -d '\n')
-    max=$(cat "$BLDIR/max_brightness" 2>/dev/null | tr -d '\n')
-    [ -n "$max" ] || max=26
-    case "$b" in
-        ''|*[!0-9]*) cat "$FBNAME/blank" 2>/dev/null | tr -d '\n' ;;
-        "$max") echo 1 ;;
-        0) echo 0 ;;
-        *) [ "$b" -lt "$((max/2))" ] && echo 0 || echo 1 ;;
+    # 0=亮 1=灭；读 GPIO524 电平（polarity low: 0=亮 1=灭；high 反之）
+    local pol now
+    gpio_export 2>/dev/null
+    pol=$(g polarity); pol=${pol:-low}
+    now=$(cat "$D/value" 2>/dev/null | tr -d '\n')
+    case "$now" in
+        '') echo "unknown" ;;
+        *)  if [ "$pol" = "low" ]; then
+                [ "$now" = "0" ] && echo 0 || echo 1
+            else
+                [ "$now" = "1" ] && echo 0 || echo 1
+            fi
+            ;;
     esac
 }
 
@@ -162,11 +146,10 @@ case "$1" in
     snapshot) do_snapshot "$@" ;;
     status)
         echo "fb=$(cat $FBNAME/name 2>/dev/null) vsize=$(cat $FBNAME/virtual_size 2>/dev/null) state=$(fb_state)"
-        echo "backlight brightness=$(cat $BLDIR/brightness 2>/dev/null)/$(cat $BLDIR/max_brightness 2>/dev/null)"
         if [ -d "$D" ]; then
-            echo "gpio$GPIO dir=$(cat $D/direction) val=$(cat $D/value) polarity=$(g polarity)"
+            echo "backlight gpio$GPIO val=$(cat $D/value) polarity=$(g polarity)"
         else
-            echo "gpio$GPIO not exported"
+            echo "backlight gpio$GPIO not exported"
         fi
         ;;
     polarity)

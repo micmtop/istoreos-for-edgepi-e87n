@@ -71,13 +71,15 @@
                 regulator-always-on;
         };
 
-        /* LCD backlight (matches stock HiGoROS DTB: pwm-backlight on PWM2,
-         * period 50000ns, 27 brightness levels). NOTE: HiGoROS treats the
-         * backlight as INVERTED logic - brightness 0 = brightest, brightness
-         * = max = off (their display-control writes max_brightness to turn
-         * off, and percent_to_brightness(p)=max*(100-p)/100, default 72% =>
-         * brightness 7). default-brightness-level must be LOW so the panel
-         * comes up bright; stock 16 would be near-dark. */
+        /* LCD backlight: stock HiGoROS does NOT drive the panel via the
+         * pwm-backlight node - start_display does:
+         *   echo 524 > /sys/class/gpio/export
+         *   echo out > /sys/class/gpio/gpio524/direction
+         *   echo 0   > /sys/class/gpio/gpio524/value   # 0 = backlight ON
+         * The pwm-backlight driver grabs pin 524 (PCM_MCK_I2S_MCLK, pwm2_0)
+         * and never lights the panel, leaving GPIO524 unexportable -> black
+         * screen. Disable the node so GPIO524 stays a plain GPIO controlled
+         * by screen-ctl/init.d. */
         backlight {
                 compatible = "pwm-backlight";
                 pinctrl-names = "default";
@@ -87,7 +89,7 @@
                                      110 120 130 140 150 160 170 180 190
                                      200 210 220 230 240 250 255>;
                 default-brightness-level = <7>;
-                status = "okay";
+                status = "disabled";
         };
 };
 

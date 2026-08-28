@@ -24,7 +24,7 @@ define Build/Compile
 endef
 
 define Package/e87n-tools/install
-	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/sbin
+	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/sbin $(1)/etc/uci-defaults
 	$(INSTALL_BIN) \
 		./files/usr/sbin/fan-control \
 		$(1)/usr/sbin/fan-control
@@ -43,6 +43,9 @@ define Package/e87n-tools/install
 	$(INSTALL_BIN) \
 		./files/etc/init.d/screen \
 		$(1)/etc/init.d/screen
+	$(INSTALL_BIN) \
+		./files/etc/uci-defaults/99-e87n-hnat \
+		$(1)/etc/uci-defaults/99-e87n-hnat
 	$(INSTALL_DATA) \
 		./files/etc/config/fan \
 		$(1)/etc/config/fan
