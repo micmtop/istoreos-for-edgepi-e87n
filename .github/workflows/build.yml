@@ -14,44 +14,6 @@ jobs:
         with:
           path: build
 
-      - name: Cache OpenWrt downloads (dl)
-        uses: actions/cache@v4
-        with:
-          path: build/istoreos/dl
-          key: ${{ runner.os }}-dl-${{ hashFiles('build/e87n.config') }}
-          restore-keys: |
-            ${{ runner.os }}-dl-
-
-      - name: Cache OpenWrt toolchain (skip gcc/binutils/musl rebuild)
-        # Free 2-core runner spends ~20-30min rebuilding the cross toolchain
-        # every run. Cache staging_dir/toolchain-* + build_dir/toolchain-*
-        # so make sees the .built marker and skips it. Key on the config hash
-        # (target arch only changes when e87n.config changes); restore-keys
-        # still reuse the last toolchain even when the config did change.
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/istoreos/staging_dir/toolchain-*
-            build/istoreos/build_dir/toolchain-*
-          key: ${{ runner.os }}-toolchain-${{ hashFiles('build/e87n.config') }}
-          restore-keys: |
-            ${{ runner.os }}-toolchain-
-
-      - name: Cache ccache (kernel + package compile objects)
-        # IMPORTANT: key MUST NOT depend on files under build/files/** or
-        # apply.sh. Those are the DTS/patch sources we edit on every fix, so
-        # hashing them invalidates the WHOLE ccache on every commit (the
-        # cache is then never hit). ccache is content-addressed: it only needs
-        # the restored ~/.cache/ccache dir, and it hits per-object regardless
-        # of this key. Pin the key to a stable constant + restore-keys prefix
-        # so the dir is always restored and ccache does the real work.
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ccache
-          key: ${{ runner.os }}-ccache-v1
-          restore-keys: |
-            ${{ runner.os }}-ccache-
-
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -84,6 +46,48 @@ jobs:
           printf 'src-git nas https://github.com/linkease/nas-packages.git;linkeasefull\nsrc-git nas_luci https://github.com/linkease/nas-packages-luci.git;main\n' >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+
+      - name: Cache OpenWrt downloads (dl)
+        # IMPORTANT: must run AFTER "Clone iStoreOS", because the clone step
+        # does `rm -rf istoreos` which would delete the restored dl dir.
+        uses: actions/cache@v4
+        with:
+          path: build/istoreos/dl
+          key: ${{ runner.os }}-dl-${{ hashFiles('build/e87n.config') }}
+          restore-keys: |
+            ${{ runner.os }}-dl-
+
+      - name: Cache OpenWrt toolchain (skip gcc/binutils/musl rebuild)
+        # IMPORTANT: must run AFTER "Clone iStoreOS", because the clone step
+        # does `rm -rf istoreos` which would delete the restored toolchain dirs.
+        # Free 2-core runner spends ~20-30min rebuilding the cross toolchain
+        # every run. Cache staging_dir/toolchain-* + build_dir/toolchain-*
+        # so make sees the .built marker and skips it. Key on the config hash
+        # (target arch only changes when e87n.config changes); restore-keys
+        # still reuse the last toolchain even when the config did change.
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/istoreos/staging_dir/toolchain-*
+            build/istoreos/build_dir/toolchain-*
+          key: ${{ runner.os }}-toolchain-${{ hashFiles('build/e87n.config') }}
+          restore-keys: |
+            ${{ runner.os }}-toolchain-
+
+      - name: Cache ccache (kernel + package compile objects)
+        # IMPORTANT: key MUST NOT depend on files under build/files/** or
+        # apply.sh. Those are the DTS/patch sources we edit on every fix, so
+        # hashing them invalidates the WHOLE ccache on every commit (the
+        # cache is then never hit). ccache is content-addressed: it only needs
+        # the restored ~/.cache/ccache dir, and it hits per-object regardless
+        # of this key. Pin the key to a stable constant + restore-keys prefix
+        # so the dir is always restored and ccache does the real work.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-v1
+          restore-keys: |
+            ${{ runner.os }}-ccache-
 
       - name: Apply E87N + MT7987 support
         run: bash build/apply.sh
