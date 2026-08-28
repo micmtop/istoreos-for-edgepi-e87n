@@ -5,9 +5,6 @@
 > **【临时警告】屏幕功能未经实机验证**
 > 作者本人的 E87N 屏幕排线座已损坏，无法点亮屏幕。本固件的屏幕驱动（`fb_nv3007`）与背光虽已实现并编译进内核，但**未经真机测试**（初始化序列参考 Arduino_GFX / LVGL 官方 NV3007 驱动移植，理论上完整，不保证实机正常）。刷入此固件后，请自行验证屏幕显示与背光是否工作。
 
-> **【提示】本固件不会改动 U-Boot/FIP**
-> 作者调试过程中曾将自己机器的 BL2 与 FIP（p3 分区）换成自建配对版本。**本固件的 sysupgrade 包内仅含 kernel 与 rootfs，不含 BL2/FIP**，刷写不影响 eMMC 引导区 BL2 与 p3 FIP 分区。因此**别人的原厂机器（官方 BL2/FIP）直接刷本固件不受影响**，无需先修改 U-Boot。
-
 ## 新功能介绍（相对原厂 HiGoROS）
 
 - 硬件 NAT：MT7987 PPE flow offload（`kmod-nft-offload` / `kmod-ipt-offload`，firewall 默认启用），充分发挥双 2.5G 性能

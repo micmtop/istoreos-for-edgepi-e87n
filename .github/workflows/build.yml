@@ -4,6 +4,11 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    # 纯文档改动不触发构建（构建仅由代码变更或手动触发）
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'HANDOFF*'
 
 jobs:
   build:
