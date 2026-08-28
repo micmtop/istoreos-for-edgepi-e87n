@@ -26,6 +26,13 @@ jobs:
           ccache --set-config=compression=true
           ccache --set-config=compression_level=1
           echo "ccache: $(ccache --version | head -1)"
+          # IMPORTANT: force ccache's cache dir to the path the actions/cache
+          # step below restores/saves (~/.cache/ccache). OpenWrt's default
+          # CCACHE_DIR is $(TOPDIR)/.ccache (build/istoreos/.ccache), which
+          # actions/cache never touches, so the ccache cache was empty on both
+          # restore AND save (Post Cache step took 1s). Pinning CCACHE_DIR here
+          # makes ccache actually write where the cache step expects it.
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
           echo "=== disk after deps ==="
           df -h
 
