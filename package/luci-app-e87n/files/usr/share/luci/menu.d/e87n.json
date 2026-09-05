@@ -28,16 +28,5 @@
         "depends": {
             "acl": [ "luci-app-e87n" ]
         }
-    },
-    "admin/services/e87n/app": {
-        "title": "自定义显示",
-        "order": 3,
-        "action": {
-            "type": "view",
-            "path": "e87n/app"
-        },
-        "depends": {
-            "acl": [ "luci-app-e87n" ]
-        }
     }
 }

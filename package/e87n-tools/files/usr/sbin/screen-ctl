@@ -51,24 +51,33 @@ gpio_write() {
 # 主路径 = GPIO524（原厂 HiGoROS start_display 方案）：
 #   echo 524 > export; echo out > direction; 0=亮 1=灭（低电平有效）。
 # DTS 已禁用 pwm-backlight，避免占用 GPIO524。
+# 状态以标记文件为准（/tmp/e87n-bl.state）：GPIO524 读回恒为 1
+# （电路拉高），不能作为状态依据，否则 LuCI 状态不同步。
 bl_set() {
     local want=$1
-    gpio_write "$want" && return 0
-    # 回退: fbtft fb0/blank (0=unblank亮 1=blank灭)
-    if [ -w "$FBNAME/blank" ]; then
+    if gpio_write "$want"; then
+        :
+    elif [ -w "$FBNAME/blank" ]; then
+        # 回退: fbtft fb0/blank (0=unblank亮 1=blank灭)
         if [ "$want" = "1" ]; then
             echo 0 > "$FBNAME/blank" 2>/dev/null
         else
             echo 1 > "$FBNAME/blank" 2>/dev/null
         fi
-        return 0
+    else
+        echo "screen-ctl: backlight control unavailable" >&2
+        return 1
     fi
-    echo "screen-ctl: backlight control unavailable" >&2
-    return 1
+    echo "$([ "$want" = "1" ] && echo on || echo off)" >/tmp/e87n-bl.state 2>/dev/null
+    return 0
+}
+
+# 状态由标记文件反映（GPIO 读回不可靠），供 status/CLI 展示
+marker_state() {
+    cat /tmp/e87n-bl.state 2>/dev/null | tr -d '\n'
 }
 
 fb_state() {
-    # 0=亮 1=灭；读 GPIO524 电平（polarity low: 0=亮 1=灭；high 反之）
     local pol now
     gpio_export 2>/dev/null
     pol=$(g polarity); pol=${pol:-low}
@@ -145,9 +154,9 @@ case "$1" in
         ;;
     snapshot) do_snapshot "$@" ;;
     status)
-        echo "fb=$(cat $FBNAME/name 2>/dev/null) vsize=$(cat $FBNAME/virtual_size 2>/dev/null) state=$(fb_state)"
+        echo "fb=$(cat $FBNAME/name 2>/dev/null) vsize=$(cat $FBNAME/virtual_size 2>/dev/null) state=$(marker_state)"
         if [ -d "$D" ]; then
-            echo "backlight gpio$GPIO val=$(cat $D/value) polarity=$(g polarity)"
+            echo "backlight gpio$GPIO val=$(cat $D/value) polarity=$(g polarity) marker=$(cat /tmp/e87n-bl.state 2>/dev/null)"
         else
             echo "backlight gpio$GPIO not exported"
         fi

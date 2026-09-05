@@ -8,7 +8,6 @@
                 "/www/cgi-bin/e87n": [ "exec" ],
                 "/usr/bin/fanctl": [ "exec" ],
                 "/usr/sbin/screen-ctl": [ "exec" ],
-                "/usr/bin/e87n-app-custom": [ "exec" ],
                 "/sys/class/gpio/gpio524/value": [ "read" ],
                 "/sys/class/graphics/fb0/blank": [ "read" ]
             },

@@ -96,11 +96,15 @@ return view.extend({
         curveCard.appendChild(el('div', '点击坐标添加控制点，拖动移动，双击删除。保存后实时生效。',
             { class: 'cbi-value-description' }));
 
-        /* Canvas 画布：x=温度(20~95℃)，y=风速(0~100%) */
+        /* Canvas 画布：逻辑坐标 x=温度(20~95℃)，y=风速(0~100%)。
+         * 按 devicePixelRatio 提升物理分辨率，避免高分屏/缩放时模糊；
+         * 绘制与坐标换算全用逻辑尺寸 CVW x CVH，仅位图按 DPR 放大。 */
+        var DPR = Math.max(1, window.devicePixelRatio || 1);
+        var CVW = 640, CVH = 400;
         var canvas = el('canvas', null, {
             id: 'fan-curve-canvas',
-            width: '640', height: '400',
-            style: 'border:1px solid #999; background:#fafafa; max-width:100%; touch-action:none'
+            width: Math.round(CVW * DPR), height: Math.round(CVH * DPR),
+            style: 'border:1px solid #999; background:#fafafa; width:100%; max-width:' + CVW + 'px; height:auto; touch-action:none'
         });
         var cvWrap = el('div', null, { style: 'text-align:center' });
         cvWrap.appendChild(canvas);
@@ -116,31 +120,32 @@ return view.extend({
         curveCard.appendChild(curveBar);
         root.appendChild(curveCard);
 
-        /* ---------- 坐标映射 ---------- */
+        /* ---------- 坐标映射（逻辑尺寸） ---------- */
         var PADL = 48, PADR = 12, PADT = 16, PADB = 36;
         var XMIN = 20, XMAX = 95, YMAX = 100;
-        function px(x) { return PADL + (x - XMIN) / (XMAX - XMIN) * (canvas.width - PADL - PADR); }
-        function py(pct) { return PADT + (1 - pct / YMAX) * (canvas.height - PADT - PADB); }
-        function ix(cx) { return Math.round(XMIN + (cx - PADL) / (canvas.width - PADL - PADR) * (XMAX - XMIN)); }
-        function iy(cy) { return Math.round(YMAX - (cy - PADT) / (canvas.height - PADT - PADB) * YMAX); }
+        function px(x) { return PADL + (x - XMIN) / (XMAX - XMIN) * (CVW - PADL - PADR); }
+        function py(pct) { return PADT + (1 - pct / YMAX) * (CVH - PADT - PADB); }
+        function ix(cx) { return Math.round(XMIN + (cx - PADL) / (CVW - PADL - PADR) * (XMAX - XMIN)); }
+        function iy(cy) { return Math.round(YMAX - (cy - PADT) / (CVH - PADT - PADB) * YMAX); }
 
         var points = [];  // [{t, pct}]
 
         function draw() {
             var ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#fafafa'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+            ctx.clearRect(0, 0, CVW, CVH);
+            ctx.fillStyle = '#fafafa'; ctx.fillRect(0, 0, CVW, CVH);
             /* 网格 + 坐标轴 */
             ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1;
             for (var t = XMIN; t <= XMAX; t += 15) {
                 var x = px(t);
-                ctx.beginPath(); ctx.moveTo(x, PADT); ctx.lineTo(x, canvas.height - PADB); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(x, PADT); ctx.lineTo(x, CVH - PADB); ctx.stroke();
                 ctx.fillStyle = '#666'; ctx.font = '11px sans-serif';
-                ctx.fillText(t + '℃', x - 10, canvas.height - PADB + 16);
+                ctx.fillText(t + '℃', x - 10, CVH - PADB + 16);
             }
             for (var p = 0; p <= 100; p += 20) {
                 var y = py(p);
-                ctx.beginPath(); ctx.moveTo(PADL, y); ctx.lineTo(canvas.width - PADR, y); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(PADL, y); ctx.lineTo(CVW - PADR, y); ctx.stroke();
                 ctx.fillText(p + '%', 6, y + 4);
             }
             ctx.fillStyle = '#444'; ctx.font = 'bold 12px sans-serif';
@@ -166,6 +171,13 @@ return view.extend({
             cvInfo.textContent = points.length ? '已编辑 ' + points.length + ' 个控制点' : '点击添加控制点';
         }
 
+        /* 鼠标/触摸坐标 -> 逻辑坐标 */
+        function evXY(e) {
+            var rect = canvas.getBoundingClientRect();
+            return { x: (e.clientX - rect.left) * CVW / rect.width,
+                     y: (e.clientY - rect.top) * CVH / rect.height };
+        }
+
         function hitTest(cx, cy) {
             for (var i = 0; i < points.length; i++) {
                 var dx = cx - px(points[i].t), dy = cy - py(points[i].pct);
@@ -176,39 +188,61 @@ return view.extend({
 
         var dragIdx = -1;
         canvas.addEventListener('mousedown', function (e) {
-            var rect = canvas.getBoundingClientRect();
-            var cx = (e.clientX - rect.left) * canvas.width / rect.width;
-            var cy = (e.clientY - rect.top) * canvas.height / rect.height;
-            var idx = hitTest(cx, cy);
+            var c = evXY(e);
+            var idx = hitTest(c.x, c.y);
             if (idx >= 0) {
                 dragIdx = idx;
-            } else if (cx >= PADL && cx <= canvas.width - PADR && cy >= PADT && cy <= canvas.height - PADB) {
-                points.push({ t: ix(cx), pct: iy(cy) });
+            } else if (c.x >= PADL && c.x <= CVW - PADR && c.y >= PADT && c.y <= CVH - PADB) {
+                points.push({ t: ix(c.x), pct: iy(c.y) });
                 points.sort(function (a, b) { return a.t - b.t; });
                 draw();
             }
         });
         canvas.addEventListener('mousemove', function (e) {
             if (dragIdx < 0) { return; }
-            var rect = canvas.getBoundingClientRect();
-            var cx = (e.clientX - rect.left) * canvas.width / rect.width;
-            var cy = (e.clientY - rect.top) * canvas.height / rect.height;
-            points[dragIdx].t = Math.max(XMIN, Math.min(XMAX, ix(cx)));
-            points[dragIdx].pct = Math.max(0, Math.min(100, iy(cy)));
+            var c = evXY(e);
+            points[dragIdx].t = Math.max(XMIN, Math.min(XMAX, ix(c.x)));
+            points[dragIdx].pct = Math.max(0, Math.min(100, iy(c.y)));
             points.sort(function (a, b) { return a.t - b.t; });
             draw();
         });
         window.addEventListener('mouseup', function () { dragIdx = -1; });
         canvas.addEventListener('dblclick', function (e) {
-            var rect = canvas.getBoundingClientRect();
-            var cx = (e.clientX - rect.left) * canvas.width / rect.width;
-            var cy = (e.clientY - rect.top) * canvas.height / rect.height;
-            var idx = hitTest(cx, cy);
+            var c = evXY(e);
+            var idx = hitTest(c.x, c.y);
             if (idx >= 0) {
                 points.splice(idx, 1);
                 draw();
             }
         });
+        /* 触摸支持（移动端）：触点当作 mousedown */
+        canvas.addEventListener('touchstart', function (e) {
+            e.preventDefault();
+            var t = e.touches[0];
+            var rect = canvas.getBoundingClientRect();
+            var x = (t.clientX - rect.left) * CVW / rect.width;
+            var y = (t.clientY - rect.top) * CVH / rect.height;
+            var idx = hitTest(x, y);
+            if (idx >= 0) { dragIdx = idx; }
+            else if (x >= PADL && x <= CVW - PADR && y >= PADT && y <= CVH - PADB) {
+                points.push({ t: ix(x), pct: iy(y) });
+                points.sort(function (a, b) { return a.t - b.t; });
+                draw();
+            }
+        }, { passive: false });
+        canvas.addEventListener('touchmove', function (e) {
+            e.preventDefault();
+            if (dragIdx < 0) { return; }
+            var t = e.touches[0];
+            var rect = canvas.getBoundingClientRect();
+            var x = (t.clientX - rect.left) * CVW / rect.width;
+            var y = (t.clientY - rect.top) * CVH / rect.height;
+            points[dragIdx].t = Math.max(XMIN, Math.min(XMAX, ix(x)));
+            points[dragIdx].pct = Math.max(0, Math.min(100, iy(y)));
+            points.sort(function (a, b) { return a.t - b.t; });
+            draw();
+        }, { passive: false });
+        canvas.addEventListener('touchend', function () { dragIdx = -1; });
 
         function saveCurve() {
             if (!points.length) { cvInfo.textContent = '曲线为空，无法保存'; return; }

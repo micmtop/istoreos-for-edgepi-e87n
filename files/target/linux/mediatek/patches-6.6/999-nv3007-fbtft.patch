@@ -172,11 +172,14 @@ new file mode 100644
 +	write_reg(par, 0x3A, 0x05); /* RGB565 (TJ-Lab value) */
 +	write_reg(par, 0x11); /* sleep out */
 +	mdelay(200);
-+	/* MADCTL = 0x00: native portrait (no scan swap).  Rotations are
-+	 * handled in software by fbtft, and set_addr_win() applies the
-+	 * panel's CGRAM offsets (col 12, row 10).  Using 0x00 avoids the
-+	 * invalid 0x70 direction that garbled the picture. */
-+	write_reg(par, 0x36, 0x00);
++       /* MADCTL = 0x60 (MX|MV, 270deg axis swap): fb is 428x142 landscape
++        * and fbtft streams rows in landscape order, so the panel must swap
++        * axes for GRAM to map fb rows into the portrait 142x428 grid.
++        * MADCTL=0x00 writes rows into columns 0..427 (beyond the 142
++        * visible columns) -> black screen; MADCTL=0x70 (MX|MV|MY) garbled
++        * the picture.  0x60 matches TFT_eSPI/Arduino_GFX NV3007 270deg
++        * (display 428x142). */
++       write_reg(par, 0x36, 0x60);
 +	/* window: 142x428 (col 12..153, row 10..437) with CGRAM offset
 +	 * col=12, row=10 (matches TFT_eSPI NV3007 setup). */
 +	write_reg(par, 0x2A, 0x00, 0x0C, 0x00, 0x99);
@@ -207,19 +210,21 @@ new file mode 100644
 +}
 +
 +/*
-+ * set_addr_win(): FBTFT calls us with the fb region (xs,ys,xe,ye) to
-+ * update.  MADCTL is 0x00 (native portrait), so fb and GRAM axes match:
-+ * x -> physical column, y -> physical row.  Apply the panel's CGRAM
-+ * offsets (col 12, row 10) so writes land in the active area.
-+ */
-+static void set_addr_win(struct fbtft_par *par, int xs, int ys, int xe, int ye)
-+{
-+	write_reg(par, 0x2A, (xs + 12) >> 8, (xs + 12) & 0xFF,
-+	      (xe + 12) >> 8, (xe + 12) & 0xFF);
-+	write_reg(par, 0x2B, (ys + 10) >> 8, (ys + 10) & 0xFF,
-+	      (ye + 10) >> 8, (ye + 10) & 0xFF);
-+	write_reg(par, 0x2C);  /* Write Memory Start */
-+}
+ * set_addr_win(): FBTFT passes update slices in FB LANDSCAPE coords
+ * (x: 0..427, y: 0..141; fb 428x142).  NV3007's CASET register is 8-bit
+ * (max 255) so a 428-wide landscape column range is unaddressable; the
+ * panel must be driven in PORTRAIT scan (col 0..141, row 0..437) with
+ * MADCTL MV (0x60) swapping axes.  Map fb(x,y) -> GRAM(col=y+12, row=x+10)
+ * (CGRAM offsets col 12 / row 10, matching TFT_eSPI NV3007 setup).
+ */
+static void set_addr_win(struct fbtft_par *par, int xs, int ys, int xe, int ye)
+{
+       write_reg(par, 0x2A, (ys + 12) >> 8, (ys + 12) & 0xFF,
+             (ye + 12) >> 8, (ye + 12) & 0xFF);
+       write_reg(par, 0x2B, (xs + 10) >> 8, (xs + 10) & 0xFF,
+             (xe + 10) >> 8, (xe + 10) & 0xFF);
+       write_reg(par, 0x2C);  /* Write Memory Start */
+}
 +
 +static struct fbtft_display display = {
 +	.width = 142,
