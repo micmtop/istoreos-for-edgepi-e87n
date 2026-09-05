@@ -200,42 +200,64 @@ return view.extend({
         var canvas = el('canvas', null, { id: 'scr-preview', width: '142', height: '428',
             style: 'border:1px solid #999; image-rendering:pixelated; max-height:50vh' });
         var pvBtn = el('button', '刷新预览', { class: 'btn cbi-button-reload' });
+        var pvAuto = el('input', null, { id: 'scr-auto', type: 'checkbox', checked: 'checked' });
         var pvInfo = el('span', '', { class: 'cbi-value-description' });
         pvCard.appendChild(el('div', null, { style: 'text-align:center' }));
         pvCard.lastChild.appendChild(canvas);
         pvCard.appendChild(el('div', null, { style: 'text-align:center' }));
         pvCard.lastChild.appendChild(pvBtn);
         pvCard.lastChild.appendChild(document.createTextNode(' '));
+        pvCard.lastChild.appendChild(pvAuto);
+        pvCard.lastChild.appendChild(el('label', '自动刷新(2s)'));
+        pvCard.lastChild.appendChild(document.createTextNode(' '));
         pvCard.lastChild.appendChild(pvInfo);
         root.appendChild(pvCard);
+
+        var pvBusy = false;
+        var pvTimer = null;
 
         pvBtn.addEventListener('click', function () { loadPreview(); });
 
         function loadPreview() {
+            /* 并发保护：上一帧未返回则跳过本次，避免请求堆积导致延迟越来越大 */
+            if (pvBusy) { return; }
+            pvBusy = true;
             that.call('action=preview').then(function (r) {
-                if (!r || !r.ok || !r.b64) { return; }
-                canvas.width = r.w;
-                canvas.height = r.h;
-                var ctx = canvas.getContext('2d');
-                var img = ctx.createImageData(r.w, r.h);
-                var raw = base64Decode(r.b64);
-                var n = Math.min(raw.length, r.w * r.h * 2);
-                var j = 0;
-                for (var i = 0; i < n; i += 2) {
-                    /* fb0 is native little-endian RGB565 (verified: write
-                     * 0x00 0xf8 -> read back unchanged = red 0xF800).
-                     * First byte = low byte. */
-                    var v = raw.charCodeAt(i) | (raw.charCodeAt(i + 1) << 8);
-                    var r5 = (v >> 11) & 0x1f, g6 = (v >> 5) & 0x3f, b5 = v & 0x1f;
-                    img.data[j++] = (r5 << 3) | (r5 >> 2);
-                    img.data[j++] = (g6 << 2) | (g6 >> 4);
-                    img.data[j++] = (b5 << 3) | (b5 >> 2);
-                    img.data[j++] = 255;
+                if (r && r.ok && r.b64) {
+                    canvas.width = r.w;
+                    canvas.height = r.h;
+                    var ctx = canvas.getContext('2d');
+                    var img = ctx.createImageData(r.w, r.h);
+                    var raw = base64Decode(r.b64);
+                    var n = Math.min(raw.length, r.w * r.h * 2);
+                    var j = 0;
+                    for (var i = 0; i < n; i += 2) {
+                        /* fb0 is native little-endian RGB565 (verified: write
+                         * 0x00 0xf8 -> read back unchanged = red 0xF800).
+                         * First byte = low byte. */
+                        var v = raw.charCodeAt(i) | (raw.charCodeAt(i + 1) << 8);
+                        var r5 = (v >> 11) & 0x1f, g6 = (v >> 5) & 0x3f, b5 = v & 0x1f;
+                        img.data[j++] = (r5 << 3) | (r5 >> 2);
+                        img.data[j++] = (g6 << 2) | (g6 >> 4);
+                        img.data[j++] = (b5 << 3) | (b5 >> 2);
+                        img.data[j++] = 255;
+                    }
+                    ctx.putImageData(img, 0, 0);
+                    pvInfo.textContent = r.w + 'x' + r.h;
                 }
-                ctx.putImageData(img, 0, 0);
-                pvInfo.textContent = r.w + 'x' + r.h;
-            });
+            }).catch(function () { /* 忽略单次失败，下一轮重试 */ })
+              .then(function () { pvBusy = false; });
         }
+
+        /* 自动刷新开关：勾选时每 2s 拉一次，取消勾选即停 */
+        pvAuto.addEventListener('change', function () {
+            if (pvAuto.checked) {
+                pvTimer = setInterval(loadPreview, 2000);
+            } else if (pvTimer) {
+                clearInterval(pvTimer);
+                pvTimer = null;
+            }
+        });
 
         var initialized = false;
 
@@ -256,7 +278,7 @@ return view.extend({
         refresh();
         loadPreview();
         setInterval(refresh, 5000);
-        setInterval(loadPreview, 8000);
+        pvTimer = setInterval(loadPreview, 2000);
         return root;
     },
 
