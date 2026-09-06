@@ -2,7 +2,7 @@ diff --git a/drivers/staging/fbtft/fb_nv3007.c b/drivers/staging/fbtft/fb_nv3007
 new file mode 100644
 --- /dev/null
 +++ b/drivers/staging/fbtft/fb_nv3007.c
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,272 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * fbtft driver for the NewVision NV3007 142x428 SPI TFT panel
@@ -22,6 +22,27 @@ new file mode 100644
 +#include "fbtft.h"
 +
 +#define DRVNAME "fb_nv3007"
++/*
++ * ==== 运行时实验参数 (/sys/module/fb_nv3007/parameters/) ====
++ * 面板 IC 的 MV 行列交换行为与 CGRAM 列偏移缺少可靠文档(厂商资料不一致),
++ * 窗口映射公式全部参数化, 刷机后可 SSH 直接热调, 无需重编:
++ *   madctl_v : MADCTL 值 (0x00 原生 / 0x20 MV 交换 / 0x60 MX|MV / 0x30 MY|MV)
++ *   swap_xy  : 1=fb-x 映射到 GRAM 行(需 MV); 0=fb-x 映射到 GRAM 列(原生)
++ *   off_x    : fb-x 轴窗口偏移 (写入 CASET / PASET 之一, 视 swap_xy)
++ *   off_y    : fb-y 轴窗口偏移
++ */
++static int madctl_v = 0x20;
++static int swap_xy = 1;
++static int off_x = 0;
++static int off_y = 12;
++module_param(madctl_v, int, 0644);
++module_param(swap_xy, int, 0644);
++module_param(off_x, int, 0644);
++module_param(off_y, int, 0644);
++MODULE_PARM_DESC(madctl_v, "NV3007 MADCTL value applied on every draw");
++MODULE_PARM_DESC(swap_xy, "1=fb-x -> GRAM rows (needs MV), 0=fb-x -> GRAM cols (native)");
++MODULE_PARM_DESC(off_x, "window offset along fb-x axis");
++MODULE_PARM_DESC(off_y, "window offset along fb-y axis");
 +
 +static int init_display(struct fbtft_par *par)
 +{
@@ -172,20 +193,19 @@ new file mode 100644
 +	write_reg(par, 0x3A, 0x05); /* RGB565 (TJ-Lab value) */
 +	write_reg(par, 0x11); /* sleep out */
 +	mdelay(200);
-+	/* MADCTL = 0x20 (MV, row/column exchange): fb-x(0..427) -> GRAM
-+	 * rows(0..427), fb-y(0..141) -> cols 12..153.  NV3007 GRAM is
-+	 * 168 cols x 428 rows, active area cols 12..153 (offset_x=12).
-+	 * fbtft does NOT rotate in software (rotate=270 only swaps fb
-+	 * dims to 428x142), so MV makes the 428-px fb row advance along
-+	 * GRAM rows, matching fbtft row-major data.  CASET=rows MUST NOT
-+	 * add the column offset (rows start at 0); PASET=cols must add
-+	 * +12.  (0x30/0x70/0x60 combos overflow the 168-col GRAM -> black
-+	 * or stripes; this combination was verified in run49/run50.) */
-+	write_reg(par, 0x36, 0x20);
-+	/* full-window init: rows 0..427 (0x0000..0x01AB), cols 12..153
-+	 * (0x000C..0x0099) */
-+	write_reg(par, 0x2A, 0x00, 0x00, 0x01, 0xAB);
-+	write_reg(par, 0x2B, 0x00, 0x0C, 0x00, 0x99);
++	/* MADCTL 与全窗口由模块参数决定(默认: 0x20/MV + CASET行无偏移 + PASET列+12)
++	 * fbtft 不做软件旋转(rotate=270 仅交换 fb 尺寸为 428x142)。
++	 * 运行时可调 _mode 经 sysfs 直接改变映射, set_addr_win() 每次全量重写。 */
++	write_reg(par, 0x36, madctl_v);
++	if (swap_xy) {
++		/* fb-x -> GRAM 行 0..427, fb-y -> GRAM 列 12..153 */
++		write_reg(par, 0x2A, 0x00, 0x00, 0x01, 0xAB);
++		write_reg(par, 0x2B, 0x00, 0x0C, 0x00, 0x99);
++	} else {
++		/* fb-x -> GRAM 列 12..153, fb-y -> GRAM 行 0..427 */
++		write_reg(par, 0x2A, 0x00, 0x0C, 0x00, 0x99);
++		write_reg(par, 0x2B, 0x00, 0x00, 0x01, 0xAB);
++	}
 +	mdelay(10);
 +
 +	/* Display On: without this the panel IC stays asleep
@@ -220,10 +240,21 @@ new file mode 100644
 + */
 +static void set_addr_win(struct fbtft_par *par, int xs, int ys, int xe, int ye)
 +{
-+	write_reg(par, 0x2A, xs >> 8, xs & 0xFF,
-+	      xe >> 8, xe & 0xFF);
-+	write_reg(par, 0x2B, (ys + 12) >> 8, (ys + 12) & 0xFF,
-+	      (ye + 12) >> 8, (ye + 12) & 0xFF);
++	int x0, x1, y0, y1;
++
++	/* 每次重写 MADCTL: 支持运行期热调参数而无需重新 init */
++	write_reg(par, 0x36, madctl_v);
++	if (swap_xy) {
++		/* fb-x -> GRAM 行(加 off_x), fb-y -> GRAM 列(加 off_y) */
++		x0 = xs + off_x; x1 = xe + off_x;
++		y0 = ys + off_y; y1 = ye + off_y;
++	} else {
++		/* fb-y -> GRAM 列(加 off_y), fb-x -> GRAM 行(加 off_x) */
++		x0 = ys + off_y; x1 = ye + off_y;
++		y0 = xs + off_x; y1 = xe + off_x;
++	}
++	write_reg(par, 0x2A, x0 >> 8, x0 & 0xFF, x1 >> 8, x1 & 0xFF);
++	write_reg(par, 0x2B, y0 >> 8, y0 & 0xFF, y1 >> 8, y1 & 0xFF);
 +	write_reg(par, 0x2C);  /* Write Memory Start */
 +}
 +
@@ -244,6 +275,7 @@ new file mode 100644
 +MODULE_DESCRIPTION("fbtft driver for NewVision NV3007 SPI LCD");
 +MODULE_LICENSE("GPL v2");
 +
+
 diff --git a/drivers/staging/fbtft/Kconfig b/drivers/staging/fbtft/Kconfig
 --- a/drivers/staging/fbtft/Kconfig
 +++ b/drivers/staging/fbtft/Kconfig
