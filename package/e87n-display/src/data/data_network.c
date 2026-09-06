@@ -9,7 +9,7 @@
 #include <net/if.h>
 #include <arpa/inet.h>
 
-#define DEFAULT_IFACE "eth1"
+#define DEFAULT_IFACE "br-lan"
 #define PROC_NET_DEV "/proc/net/dev"
 #define MAX_LINE_LEN 256
 
@@ -343,8 +343,12 @@ int data_network_update(void)
         }
     }
 
-    // 计算速度
-    if (!g_first_read) {
+    // 计算速度：接口无流量(counter 不变)时强制 0，避免陈旧/基准值误导
+    if (current_stats.rx_bytes == g_last_stats.rx_bytes &&
+        current_stats.tx_bytes == g_last_stats.tx_bytes && !g_first_read) {
+        g_rx_speed = 0;
+        g_tx_speed = 0;
+    } else if (!g_first_read) {
         uint32_t elapsed_ms = now - g_last_update_ms;
         if (elapsed_ms > 0) {
             // 转换为每秒字节数

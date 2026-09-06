@@ -196,7 +196,7 @@ void ui_Screen3_screen_init(void)
     lv_obj_set_width(ui_LabelChartDlValue, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_LabelChartDlValue, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_LabelChartDlValue, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_LabelChartDlValue, "100 MB/s");
+    lv_label_set_text(ui_LabelChartDlValue, "--");
     lv_obj_set_style_text_color(ui_LabelChartDlValue, lv_color_hex(0x00FFB6), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_LabelChartDlValue, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_LabelChartDlValue, &ui_font_Font1, LV_PART_MAIN | LV_STATE_DEFAULT);

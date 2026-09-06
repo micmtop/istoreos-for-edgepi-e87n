@@ -144,7 +144,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_width(ui_LabelDlSpeed, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_LabelDlSpeed, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_LabelDlSpeed, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_LabelDlSpeed, "下载: 100 B/s");
+    lv_label_set_text(ui_LabelDlSpeed, "下载: --");
     lv_obj_set_style_text_color(ui_LabelDlSpeed, lv_color_hex(0x00FFB6), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_LabelDlSpeed, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_LabelDlSpeed, &ui_font_Font1, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -170,7 +170,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_width(ui_LabelUlSpeed, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_LabelUlSpeed, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_align(ui_LabelUlSpeed, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_LabelUlSpeed, "上传: 26 B/s");
+    lv_label_set_text(ui_LabelUlSpeed, "上传: --");
     lv_obj_set_style_text_color(ui_LabelUlSpeed, lv_color_hex(0x02A4FD), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_LabelUlSpeed, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_LabelUlSpeed, &ui_font_Font1, LV_PART_MAIN | LV_STATE_DEFAULT);
