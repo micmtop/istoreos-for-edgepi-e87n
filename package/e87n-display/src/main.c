@@ -197,6 +197,10 @@ int main(int argc, char **argv) {
         printf("Failed to initialize data manager\n");
     }
 
+    // 初始化 UI 刷新器：必须调用，否则 g_initialized=false，
+    // 所有 register_* 提前返回，定时器不注册 -> 标签冻结在初始文本
+    ui_refresher_init();
+
     ui_init();
     apply_custom_text(custom_text);
 
