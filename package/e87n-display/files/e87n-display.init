@@ -37,6 +37,9 @@ start() {
     done
 
     echo "e87n-display start: $args"
+    # 开机清屏：fbtft 按 dirty 行增量刷新不会覆盖 GRAM 残留，先写全黑帧
+    # 清除旧数据/旧实验条纹（实测 GRAM 残留是暗纹根因）
+    [ -x /usr/sbin/screen-ctl ] && /usr/sbin/screen-ctl off_fb >/dev/null 2>&1
     /usr/bin/e87n-display $args &
 }
 
