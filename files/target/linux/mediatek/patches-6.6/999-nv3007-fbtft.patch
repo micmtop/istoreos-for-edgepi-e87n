@@ -176,11 +176,11 @@ new file mode 100644
 +	 * handled in software by fbtft, and set_addr_win() applies the
 +	 * panel's CGRAM offsets (col 12, row 10).  Using 0x00 avoids the
 +	 * invalid 0x70 direction that garbled the picture. */
-+	write_reg(par, 0x36, 0x00);
++	write_reg(par, 0x36, 0x20);
 +	/* window: 142x428 (col 12..153, row 10..437) with CGRAM offset
 +	 * col=12, row=10 (matches TFT_eSPI NV3007 setup). */
 +	write_reg(par, 0x2A, 0x00, 0x0C, 0x00, 0x99);
-+	write_reg(par, 0x2B, 0x00, 0x0A, 0x01, 0xB5);
++	write_reg(par, 0x2B, 0x00, 0x0C, 0x01, 0xB7);
 +	mdelay(10);
 +
 +	/* Display On: without this the panel IC stays asleep
@@ -216,7 +216,7 @@ new file mode 100644
 +{
 +	write_reg(par, 0x2A, (xs + 12) >> 8, (xs + 12) & 0xFF,
 +	      (xe + 12) >> 8, (xe + 12) & 0xFF);
-+	write_reg(par, 0x2B, (ys + 10) >> 8, (ys + 10) & 0xFF,
++	write_reg(par, 0x2B, (ys + 12) >> 8, (ys + 12) & 0xFF,
 +	      (ye + 10) >> 8, (ye + 10) & 0xFF);
 +	write_reg(par, 0x2C);  /* Write Memory Start */
 +}
