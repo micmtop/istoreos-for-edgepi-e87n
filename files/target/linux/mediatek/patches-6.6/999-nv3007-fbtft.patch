@@ -2,7 +2,7 @@ diff --git a/drivers/staging/fbtft/fb_nv3007.c b/drivers/staging/fbtft/fb_nv3007
 new file mode 100644
 --- /dev/null
 +++ b/drivers/staging/fbtft/fb_nv3007.c
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,241 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * fbtft driver for the NewVision NV3007 142x428 SPI TFT panel
@@ -172,15 +172,20 @@ new file mode 100644
 +	write_reg(par, 0x3A, 0x05); /* RGB565 (TJ-Lab value) */
 +	write_reg(par, 0x11); /* sleep out */
 +	mdelay(200);
-+	/* MADCTL = 0x00: native portrait (no scan swap).  Rotations are
-+	 * handled in software by fbtft, and set_addr_win() applies the
-+	 * panel's CGRAM offsets (col 12, row 10).  Using 0x00 avoids the
-+	 * invalid 0x70 direction that garbled the picture. */
++	/* MADCTL = 0x20 (MV, row/column exchange): fb-x(0..427) -> GRAM
++	 * rows(0..427), fb-y(0..141) -> cols 12..153.  NV3007 GRAM is
++	 * 168 cols x 428 rows, active area cols 12..153 (offset_x=12).
++	 * fbtft does NOT rotate in software (rotate=270 only swaps fb
++	 * dims to 428x142), so MV makes the 428-px fb row advance along
++	 * GRAM rows, matching fbtft row-major data.  CASET=rows MUST NOT
++	 * add the column offset (rows start at 0); PASET=cols must add
++	 * +12.  (0x30/0x70/0x60 combos overflow the 168-col GRAM -> black
++	 * or stripes; this combination was verified in run49/run50.) */
 +	write_reg(par, 0x36, 0x20);
-+	/* window: 142x428 (col 12..153, row 10..437) with CGRAM offset
-+	 * col=12, row=10 (matches TFT_eSPI NV3007 setup). */
-+	write_reg(par, 0x2A, 0x00, 0x0C, 0x00, 0x99);
-+	write_reg(par, 0x2B, 0x00, 0x0C, 0x01, 0xB7);
++	/* full-window init: rows 0..427 (0x0000..0x01AB), cols 12..153
++	 * (0x000C..0x0099) */
++	write_reg(par, 0x2A, 0x00, 0x00, 0x01, 0xAB);
++	write_reg(par, 0x2B, 0x00, 0x0C, 0x00, 0x99);
 +	mdelay(10);
 +
 +	/* Display On: without this the panel IC stays asleep
@@ -207,17 +212,18 @@ new file mode 100644
 +}
 +
 +/*
-+ * set_addr_win(): FBTFT calls us with the fb region (xs,ys,xe,ye) to
-+ * update.  MADCTL is 0x00 (native portrait), so fb and GRAM axes match:
-+ * x -> physical column, y -> physical row.  Apply the panel's CGRAM
-+ * offsets (col 12, row 10) so writes land in the active area.
++ * set_addr_win(): fbtft streams fb rows (428x142, fx inner) and calls us
++ * with fb coords (0..427, 0..141).  MADCTL MV: CASET(rows)=fb-x (0..427,
++ * offset 0), PASET(cols)=fb-y+12 (12..153, offset 12).  Both axes must NOT
++ * mix offsets the other way (CASET+12 -> rows 12..439 overflows GRAM 0..427
++ * -> black screen).
 + */
 +static void set_addr_win(struct fbtft_par *par, int xs, int ys, int xe, int ye)
 +{
-+	write_reg(par, 0x2A, (xs + 12) >> 8, (xs + 12) & 0xFF,
-+	      (xe + 12) >> 8, (xe + 12) & 0xFF);
++	write_reg(par, 0x2A, xs >> 8, xs & 0xFF,
++	      xe >> 8, xe & 0xFF);
 +	write_reg(par, 0x2B, (ys + 12) >> 8, (ys + 12) & 0xFF,
-+	      (ye + 10) >> 8, (ye + 10) & 0xFF);
++	      (ye + 12) >> 8, (ye + 12) & 0xFF);
 +	write_reg(par, 0x2C);  /* Write Memory Start */
 +}
 +
