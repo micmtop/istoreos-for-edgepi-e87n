@@ -172,15 +172,15 @@ new file mode 100644
 +	write_reg(par, 0x3A, 0x05); /* RGB565 (TJ-Lab value) */
 +	write_reg(par, 0x11); /* sleep out */
 +	mdelay(200);
-+	/* MADCTL = 0x60: MX|MV 270deg axis swap so the landscape fb
-+	 * maps into the portrait GRAM (0x00 -> black, 0x70 -> garbled; 0x60
-+	 * matches TFT_eSPI/Arduino_GFX NV3007 rotate=270).  fb(x,y) ->
-+	 * GRAM(col=y+12, row=x+10). */
-+	write_reg(par, 0x36, 0x60);
++	/* MADCTL = 0x20 (MV, row/column exchange): fb-x(0..427) -> GRAM
++	 * rows(0..427), fb-y(0..141) -> cols 12..153 (GRAM 168x428, active
++	 * cols 12..153).  MV makes the write pointer advance along fb-x,
++	 * matching fbtft row-major data (0x00/0x70/0x60 = black/garbled/stripes). */
++	write_reg(par, 0x36, 0x20);
 +	/* window: 142x428 (col 12..153, row 10..437) with CGRAM offset
 +	 * col=12, row=10 (matches TFT_eSPI NV3007 setup). */
-+	write_reg(par, 0x2A, 0x00, 0x0C, 0x00, 0x99);
-+	write_reg(par, 0x2B, 0x00, 0x0A, 0x01, 0xB5);
++	write_reg(par, 0x2A, 0x00, 0x00, 0x01, 0xAB);
++	write_reg(par, 0x2B, 0x00, 0x0C, 0x00, 0x99);
 +	mdelay(10);
 +
 +	/* Display On: without this the panel IC stays asleep
@@ -207,17 +207,17 @@ new file mode 100644
 +}
 +
 +/*
-+ * set_addr_win(): FBTFT passes updates in FB landscape coords (428x142);
-+ * NV3007 CASET is 8-bit so the panel scans portrait (col 0..141, row
-+ * 0..437) with MADCTL MV: map fb(x,y) -> col=y+12, row=x+10.  CGRAM
-+ * offsets (col 12, row 10) match TFT_eSPI NV3007 setup.
++ * set_addr_win(): fbtft streams fb rows (428x142, fx inner).  NV3007 GRAM
++ * 168 cols x 428 rows, active cols 12..153.  MADCTL MV: CASET=fb-x -> rows
++ * (0..427), PASET=fb-y+12 -> cols (12..153); write pointer advances along
++ * fb-x, matching fbtft row-major data (0x00/0x70/0x60 = black/garbled/stripes).
 + */
 +static void set_addr_win(struct fbtft_par *par, int xs, int ys, int xe, int ye)
 +{
-+	write_reg(par, 0x2A, (ys + 12) >> 8, (ys + 12) & 0xFF,
++	write_reg(par, 0x2A, xs >> 8, xs & 0xFF,
++	      xe >> 8, xe & 0xFF);
++	write_reg(par, 0x2B, (ys + 12) >> 8, (ys + 12) & 0xFF,
 +	      (ye + 12) >> 8, (ye + 12) & 0xFF);
-+	write_reg(par, 0x2B, (xs + 10) >> 8, (xs + 10) & 0xFF,
-+	      (xe + 10) >> 8, (xe + 10) & 0xFF);
 +	write_reg(par, 0x2C);  /* Write Memory Start */
 +}
 +
