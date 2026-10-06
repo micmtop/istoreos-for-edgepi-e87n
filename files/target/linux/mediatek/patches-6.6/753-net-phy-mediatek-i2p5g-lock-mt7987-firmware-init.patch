@@ -1,0 +1,56 @@
+--- a/drivers/net/phy/mediatek/mtk-2p5ge.c
++++ b/drivers/net/phy/mediatek/mtk-2p5ge.c
+@@ -203,10 +203,12 @@
+ 		goto release_fw;
+ 	}
+ 
++	phy_lock_mdio_bus(phydev);
++
+ 	/* Force 2.5Gphy back to AN state */
+-	phy_set_bits(phydev, MII_BMCR, BMCR_RESET);
++	__phy_set_bits(phydev, MII_BMCR, BMCR_RESET);
+ 	usleep_range(5000, 6000);
+-	phy_set_bits(phydev, MII_BMCR, BMCR_PDOWN);
++	__phy_set_bits(phydev, MII_BMCR, BMCR_PDOWN);
+ 
+ 	reg = readw(apb_base + SW_RESET);
+ 	writew(reg & ~MD32_RESTART_EN_CLEAR, apb_base + SW_RESET);
+@@ -249,17 +251,17 @@
+ 		dev_err(dev, "Fail to enable 2.5Gbps module clock: %d\n", ret);
+ 
+ 	/* Disable AN */
+-	phy_clear_bits(phydev, MII_BMCR, BMCR_ANENABLE);
++	__phy_clear_bits(phydev, MII_BMCR, BMCR_ANENABLE);
+ 
+ 	/* Force to run at 2.5G speed */
+-	phy_modify_mmd(phydev, MDIO_MMD_VEND1, MTK_PHY_AN_FORCE_SPEED_REG,
+-		       MTK_PHY_MASTER_FORCE_SPEED_SEL_MASK,
+-		       MTK_PHY_MASTER_FORCE_SPEED_SEL_EN |
+-		       FIELD_PREP(MTK_PHY_MASTER_FORCE_SPEED_SEL_MASK, 0x1b));
+-
+-	phy_set_bits_mmd(phydev, MDIO_MMD_VEND1, MTK_PHY_LINK_STATUS_RELATED,
+-			 MTK_PHY_BYPASS_LINK_STATUS_OK |
+-			 MTK_PHY_FORCE_LINK_STATUS_HCD);
++	__phy_modify_mmd(phydev, MDIO_MMD_VEND1, MTK_PHY_AN_FORCE_SPEED_REG,
++			 MTK_PHY_MASTER_FORCE_SPEED_SEL_MASK,
++			 MTK_PHY_MASTER_FORCE_SPEED_SEL_EN |
++			 FIELD_PREP(MTK_PHY_MASTER_FORCE_SPEED_SEL_MASK, 0x1b));
++
++	__phy_set_bits_mmd(phydev, MDIO_MMD_VEND1, MTK_PHY_LINK_STATUS_RELATED,
++			   MTK_PHY_BYPASS_LINK_STATUS_OK |
++			   MTK_PHY_FORCE_LINK_STATUS_HCD);
+ 
+ 	/* Set xbz, pma and rx as "do not reset" in order to input DSP code. */
+ 	reg = readl(pmd_reg_base + DO_NOT_RESET);
+@@ -340,9 +342,10 @@
+ 
+ 	reg = readw(mcu_csr_base + MD32_EN_CFG);
+ 	writew(reg | MD32_EN, mcu_csr_base + MD32_EN_CFG);
+-	phy_set_bits(phydev, MII_BMCR, BMCR_RESET);
++	__phy_set_bits(phydev, MII_BMCR, BMCR_RESET);
+ 	/* We need a delay here to stabilize initialization of MCU */
+ 	usleep_range(7000, 8000);
++	phy_unlock_mdio_bus(phydev);
+ 	dev_info(dev, "Firmware loading/trigger ok.\n");
+ 
+ 	priv->fw_loaded = true;
