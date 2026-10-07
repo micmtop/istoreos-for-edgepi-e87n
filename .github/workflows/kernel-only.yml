@@ -69,10 +69,16 @@ jobs:
         run: |
           set -o pipefail
           cd build/istoreos
-          make target/linux/compile -j2 V=s 2>&1 | tee /tmp/kernel-build.log
-          make target/linux/install -j2 V=s 2>&1 | tee -a /tmp/kernel-build.log
-          find build_dir -path '*linux-mediatek_filogic*' -name 'edgepi_e87n-kernel.bin' -o -name '*edgepi_e87n*kernel*.bin'
-          find build_dir -path '*linux-mediatek_filogic*' -name '*.dtb' -o -name '*.itb'
+          make CCACHE=y -j2 target/linux/compile V=s 2>&1 | tee /tmp/kernel-build.log
+          make CCACHE=y -j2 target/linux/install V=s 2>&1 | tee -a /tmp/kernel-build.log
+
+      - name: Upload kernel build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e87n-kernel-only-log
+          path: /tmp/kernel-build.log
+          retention-days: 7
 
       - name: Verify kernel output
         run: |
