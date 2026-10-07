@@ -1,0 +1,13 @@
+--- a/drivers/net/phy/mediatek/mtk-2p5ge.c
++++ b/drivers/net/phy/mediatek/mtk-2p5ge.c
+@@ -474,8 +474,8 @@
+ 
+ 	/* Setup LED */
+ 	phy_set_bits_mmd(phydev, MDIO_MMD_VEND2, MTK_PHY_LED0_ON_CTRL,
+-			 MTK_PHY_LED_ON_POLARITY | MTK_PHY_LED_ON_LINK10 |
+-			 MTK_PHY_LED_ON_LINK100 | MTK_PHY_LED_ON_LINK1000 |
++			 MTK_PHY_LED_ON_LINK10 | MTK_PHY_LED_ON_LINK100 |
++			 MTK_PHY_LED_ON_LINK1000 |
+ 			 MTK_PHY_LED_ON_LINK2500);
+ 	phy_set_bits_mmd(phydev, MDIO_MMD_VEND2, MTK_PHY_LED1_ON_CTRL,
+ 			 MTK_PHY_LED_ON_FDX | MTK_PHY_LED_ON_HDX);
