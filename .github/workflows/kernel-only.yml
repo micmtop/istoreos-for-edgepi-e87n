@@ -76,7 +76,6 @@ jobs:
           set -o pipefail
           cd build/istoreos
           make CCACHE=y -j2 target/linux/compile V=s 2>&1 | tee /tmp/kernel-build.log
-          make CCACHE=y -j2 target/linux/install V=s 2>&1 | tee -a /tmp/kernel-build.log
 
       - name: Upload kernel build log
         if: always()
@@ -94,6 +93,7 @@ jobs:
 
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: e87n-kernel-only
           path: |
