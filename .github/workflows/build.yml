@@ -11,6 +11,7 @@ on:
       - 'HANDOFF*'
       - '.github/workflows/kernel-only.yml'
       - '.github/workflows/kernel-only.yml'
+      - '.github/workflows/kernel-only.yml'
 
 jobs:
   build:
