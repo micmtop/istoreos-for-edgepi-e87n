@@ -65,6 +65,12 @@ jobs:
           make defconfig
           grep -q '^CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n=y' .config
 
+      - name: Prepare host tools
+        run: |
+          cd build/istoreos
+          make tools/compile -j2 V=s
+          make target/linux/prepare V=s
+
       - name: Compile kernel and image FIT
         run: |
           set -o pipefail
