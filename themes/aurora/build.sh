@@ -10,5 +10,8 @@ cmake -S . -B build \
   -DCMAKE_C_COMPILER="$CC" \
   -DCMAKE_C_FLAGS="-O2"
 cmake --build build -j"$(nproc 2>/dev/null || echo 4)"
-tar -czf aurora.tar.gz theme.json -C build app
+cp -f theme.json build/
+FILES="app theme.json"
+if [ -f font.ttf ]; then cp -f font.ttf build/; FILES="$FILES font.ttf"; fi
+tar -czf aurora.tar.gz -C build $FILES
 echo "ok -> $(pwd)/aurora.tar.gz"

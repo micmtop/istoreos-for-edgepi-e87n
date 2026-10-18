@@ -13,6 +13,7 @@
  */
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -32,6 +33,55 @@
 #define C_TEXT      0xE8E2D0
 #define C_MUTED     0x8A93A0
 #define C_DIM       0x4A5460
+
+/* ---------- 主题自带 CJK 字体（font.ttf，与 app 同目录） ---------- */
+static lv_font_t *g_font_cjk;
+
+static const lv_font_t *cjk_font(void)
+{
+    return g_font_cjk ? g_font_cjk : &lv_font_source_han_sans_sc_16_cjk;
+}
+
+static void load_theme_font(const char *argv0)
+{
+    char path[512];
+    const char *slash;
+    FILE *f;
+    long n;
+    void *buf;
+
+    if (!argv0)
+        return;
+    slash = strrchr(argv0, '/');
+    if (slash)
+        snprintf(path, sizeof(path), "%.*s/font.ttf", (int)(slash - argv0), argv0);
+    else
+        snprintf(path, sizeof(path), "font.ttf");
+
+    f = fopen(path, "rb");
+    if (!f)
+        return;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (n <= 0 || n > 8 * 1024 * 1024) {
+        fclose(f);
+        return;
+    }
+    buf = malloc((size_t)n);
+    if (!buf) {
+        fclose(f);
+        return;
+    }
+    if (fread(buf, 1, (size_t)n, f) != (size_t)n) {
+        fclose(f);
+        free(buf);
+        return;
+    }
+    fclose(f);
+    g_font_cjk = lv_tiny_ttf_create_data(buf, (size_t)n, 16);
+    printf("[aurora] font.ttf loaded: %s (%ld bytes)", path, n);
+}
 
 /* ---------- 布局 ---------- */
 #define W 428
@@ -277,7 +327,7 @@ static void build_ui(void)
     lbl_up = label(scr, 266, 34, &lv_font_montserrat_14, C_AMBER, "UP --");
     bar_up = seg_bar(scr, 266, 54, 152, 6, 10, C_AMBER);
 
-    lbl_clients = label(scr, 266, 64, &lv_font_montserrat_12, C_MUTED, "在线 --");
+    lbl_clients = label(scr, 266, 66, cjk_font(), C_MUTED, "在线 --");
 
     /* ---- 分隔线 ---- */
     sep = rect(scr, 8, 84, W - 16, 1, C_LINE);
@@ -287,7 +337,7 @@ static void build_ui(void)
     lbl_saying = lv_label_create(scr);
     lv_obj_set_pos(lbl_saying, 10, 92);
     lv_obj_set_size(lbl_saying, W - 20, 34);
-    lv_obj_set_style_text_font(lbl_saying, &lv_font_source_han_sans_sc_16_cjk, 0);
+    lv_obj_set_style_text_font(lbl_saying, cjk_font(), 0);
     lv_obj_set_style_text_color(lbl_saying, lv_color_hex(C_TEXT), 0);
     lv_obj_set_style_text_letter_space(lbl_saying, 0, 0);
     lv_label_set_long_mode(lbl_saying, LV_LABEL_LONG_MODE_WRAP);
@@ -406,11 +456,13 @@ static void tick_cb(lv_timer_t *t)
 
 /* ------------------------------------------------------------------ */
 
-int main(void)
+int main(int argc, char **argv)
 {
     lv_display_t *disp;
 
+    (void)argc;
     lv_init();
+    load_theme_font(argv ? argv[0] : NULL);
 
     disp = lv_linux_fbdev_create();
     if (!disp)

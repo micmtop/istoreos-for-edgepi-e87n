@@ -83,11 +83,11 @@ cmd_install() {
 
     # ---- 校验 ----
     if [ -f "$SRC/app" ]; then
-        magic=$(head -c 4 "$SRC/app" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+        magic=$(head -c 4 "$SRC/app" 2>/dev/null | hexdump -v -e '1/1 "%02x"')
         if [ "$magic" != "7f454c46" ]; then
             rm -rf "$TMP"; printf '{"ok":0,"err":"app is not an ELF"}\n'; return 1
         fi
-        mach=$(dd if="$SRC/app" bs=1 skip=18 count=2 2>/dev/null | od -An -tx1 | tr -d ' \n')
+        mach=$(dd if="$SRC/app" bs=1 skip=18 count=2 2>/dev/null | hexdump -v -e '1/1 "%02x"')
         if [ "$mach" != "b700" ]; then
             rm -rf "$TMP"; printf '{"ok":0,"err":"app is not aarch64 (machine=%s)"}\n' "$mach"; return 1
         fi
@@ -122,7 +122,7 @@ cmd_install() {
     rm -rf "$DEST"
     mkdir -p "$DEST"
     # 只拷允许的文件，防止包里塞别的东西
-    for f in theme.json app frame.raw preview.raw README.md; do
+    for f in theme.json app frame.raw preview.raw README.md font.ttf; do
         [ -f "$SRC/$f" ] && cp -f "$SRC/$f" "$DEST/$f"
     done
     chmod +x "$DEST/app" 2>/dev/null

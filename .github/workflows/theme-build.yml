@@ -102,7 +102,10 @@ jobs:
           THEME="${{ inputs.theme }}"
           SRC="$PWD/build/themes/$THEME"
           cd /tmp/theme-build
-          tar -czf "$PWD/theme-$THEME.tar.gz" -C "$SRC" theme.json -C /tmp/theme-build app
+          cp -f "$SRC/theme.json" .
+          FILES="app theme.json"
+          if [ -f "$SRC/font.ttf" ]; then cp -f "$SRC/font.ttf" .; FILES="$FILES font.ttf"; fi
+          tar -czf "$PWD/theme-$THEME.tar.gz" $FILES
           ls -l "$PWD/theme-$THEME.tar.gz"
           tar -tzf "$PWD/theme-$THEME.tar.gz"
 
