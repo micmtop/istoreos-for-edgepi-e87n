@@ -136,6 +136,20 @@ else
 fi
 if [ -d /sys/module/nvme ] || lsmod 2>/dev/null | grep -q '^nvme'; then ok "nvme 驱动已加载"; else info "nvme 驱动未加载（未插盘/未装包）"; fi
 
+# ---------------- iStoreOS 商店 / 向导 ----------------
+echo "== 商店 / 向导 =="
+if [ -f /usr/share/luci/menu.d/luci-app-store.json ] || [ -d /www/luci-static/resources/view/store ]; then
+    ok "iStore 商店前端已安装"
+else
+    bad "iStore 商店缺失（luci-app-store 没进固件）"
+fi
+if [ -f /usr/share/luci/menu.d/luci-app-quickstart.json ]; then
+    ok "网络向导前端已安装"
+else
+    bad "网络向导缺失（luci-app-quickstart 没进固件）"
+fi
+[ -x /usr/sbin/quickstart ] && ok "quickstart 守护进程存在" || bad "quickstart 守护进程缺失"
+
 # ---------------- 屏幕 / 背光 ----------------
 echo "== 屏幕 =="
 if [ -e /sys/class/graphics/fb0 ]; then

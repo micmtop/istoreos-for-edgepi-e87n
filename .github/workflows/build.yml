@@ -135,6 +135,21 @@ jobs:
             exit 1
           fi
 
+      - name: Gate - iStoreOS store/wizard must be in the config
+        # 25.12 上这些包的依赖被静默丢弃过（defconfig 不报错，固件里就没了商店和向导）。
+        # 这里硬门禁：配置里没有就让构建失败，别再发布缺功能固件。
+        run: |
+          cd build/istoreos
+          miss=0
+          for s in luci-app-store luci-app-quickstart quickstart; do
+            if grep -q "^CONFIG_PACKAGE_${s}=y" .config; then
+              echo "OK   $s"
+            else
+              echo "FATAL: $s 没进 .config（依赖被静默丢弃）"; miss=1
+            fi
+          done
+          [ "$miss" = "0" ] || exit 1
+
       - name: Show selected packages
         run: |
           cd build/istoreos

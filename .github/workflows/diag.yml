@@ -35,50 +35,35 @@ jobs:
           ./scripts/feeds install -a > /tmp/feeds-install.log 2>&1
           tail -5 /tmp/feeds-install.log
 
-      - name: defconfig #1 (as-is)
+      - name: Apply E87N + defconfig + evaluate dependency symbols
         run: |
           cd build
           bash apply.sh
           cd istoreos
           cp ../e87n.config .config
-          make defconfig > /tmp/defconfig1.log 2>&1 || tail -20 /tmp/defconfig1.log
-          echo "=== 直接依赖链的展开结果（.packageinfo）"
-          for p in libuci-lua luci-lua-runtime luci-lib-taskd taskd luci-lib-xterm quickstart liblua; do
-            echo "--- $p"
-            awk -v pkg="$p" '$0 == "Package: " pkg {f=1} f{print} f && /^$/{exit}' tmp/.packageinfo | grep -E "^(Package|Depends|Provides|Menu|Conflicts):" 
+          make defconfig > /tmp/defconfig.log 2>&1 || tail -20 /tmp/defconfig.log
+
+          echo "=== 选中情况"
+          for s in luci-app-store luci-app-quickstart quickstart; do
+            printf '%-24s %s\n' "$s" "$(grep -E "^CONFIG_PACKAGE_${s}=" .config || echo 'NOT SET')"
           done
 
-      - name: defconfig #2 (explicitly request the whole chain)
-        run: |
-          cd build/istoreos
-          printf '%s\n' \
-            CONFIG_PACKAGE_libuci-lua=y \
-            CONFIG_PACKAGE_luci-lua-runtime=y \
-            CONFIG_PACKAGE_taskd=y \
-            CONFIG_PACKAGE_luci-lib-taskd=y \
-            CONFIG_PACKAGE_luci-lib-xterm=y \
-            CONFIG_PACKAGE_script-utils=y \
-            CONFIG_PACKAGE_coreutils=y \
-            CONFIG_PACKAGE_coreutils-stty=y \
-            CONFIG_PACKAGE_luci-app-store=y \
-            CONFIG_PACKAGE_luci-app-quickstart=y >> .config
-          make defconfig > /tmp/defconfig2.log 2>&1 || tail -20 /tmp/defconfig2.log
-          echo "=== 显式要求之后谁还活着"
-          for s in luci-app-store luci-app-quickstart luci-lib-taskd luci-lib-xterm taskd \
-                   libuci-lua luci-lua-runtime script-utils coreutils coreutils-stty; do
-            printf '%-24s %s\n' "$s" "$(grep -E "^CONFIG_PACKAGE_${s}=" .config || echo 'STILL DROPPED')"
+          for pkg in luci-app-store luci-app-quickstart; do
+            START=$(grep -n "config PACKAGE_${pkg}$" tmp/.config-package.in | head -1 | cut -d: -f1)
+            echo "=== stanza line $START for $pkg"
+            if [ -n "$START" ]; then
+              sed -n "${START},$((START + 22))p" tmp/.config-package.in
+              echo "--- 每个 depends on 里的符号在当前 .config 的取值"
+              sed -n "${START},$((START + 22))p" tmp/.config-package.in \
+                | grep "depends on" \
+                | tr ' ()!&|<>=+' '\n\n\n\n\n\n\n\n\n\n\n' > /tmp/syms.txt
+              sort -u /tmp/syms.txt | while read -r sym; do
+                  [ -n "$sym" ] || continue
+                  case "$sym" in
+                    depends|on|if) continue ;;
+                  esac
+                  val=$(grep -E "^CONFIG_${sym}=" .config | head -1)
+                  printf '   %-42s %s\n' "$sym" "${val:-<NOT SET>}"
+                done
+            fi
           done
-          echo "=== defconfig 第二次的警告（store/quickstart/taskd）"
-          grep -iE "store|quickstart|taskd|xterm|lua" /tmp/defconfig2.log | head -20
-
-      - name: Why kconfig still drops them (generated Config.in stanza)
-        run: |
-          cd build/istoreos
-          echo "=== 出现位置"
-          grep -n "luci-app-store" tmp/.config-package.in | head -10
-          echo "=== 全部相关段落"
-          grep -n -B3 -A14 "PACKAGE_luci-app-store" tmp/.config-package.in | head -70
-          echo "=== quickstart 段落"
-          grep -n -A14 "^config PACKAGE_luci-app-quickstart" tmp/.config-package.in | head -30
-          echo "=== 是否有别的包 depends on store"
-          grep -rn "PACKAGE_luci-app-store" tmp/.config-package.in | grep -v "^.*config PACKAGE_luci-app-store" | head -10
