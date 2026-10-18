@@ -1,100 +1,162 @@
-# istoreos-for-edgepi-e87n
+# EdgePi E87N · iStoreOS
 
-为 EdgePi (Hiveton) E87N 路由器编译的 iStoreOS 固件。基于 OpenWrt 24.10（iStoreOS 分支），内核 6.6。
+给 **EdgePi / Hiveton E87N（MT7987A）** 路由器编译的 iStoreOS 固件。仓库里是构建脚本、
+设备树、内核补丁、自研软件包和 CI，固件本体由 GitHub Actions 产出。
 
-> **【重要】屏幕功能已修复**
-> 之前难产很久的屏幕功能这几天终于修好了，下一步会做LVGL导入，可以更加自由地更改屏幕内容
+---
 
-## 功能一览
+## 硬件
 
-- 硬件 NAT：MT7987 PPE flow offload（`kmod-nft-offload` / `kmod-ipt-offload`，firewall 默认启用），充分发挥双 2.5G 性能
-- 风扇控制：LuCI 风扇百分比控制 + 曲线配置（fan-control）
-- 屏幕控制：luci-app-e87n，支持自定义显示（LVGL 应用上传与预览）、背光控制 **（目前未验证功能是否有效）**
-- **存储修复：overlay 改用 fstools `rootfs_data`，不再占用 p3（FIP/U-Boot）分区——修复了原 iStoreOS 启动脚本把 p3 当 overlay、每次开机覆盖 U-Boot 的严重缺陷**
-- 系统升级：sysupgrade 走 `emmc_do_upgrade`，同时更新 p4 内核 FIT 与 p5 rootfs（修复原 nand/emmc 分支判断错误）
-- 网口：`en8811h` 驱动，eth0/eth1 双 2.5G 正常工作
-
-## 硬件概览
-
-| 组件 | 规格 |
+| 项 | 规格 |
 |---|---|
-| SoC | MT7987A（4x Cortex-A53） |
-| 内存 | 1GB DDR |
-| 存储 | 8GB eMMC |
-| 网络 | 双 2.5G 网口（Airoha EN8811H PHY），LAN + HNAT |
-| 屏幕 | NV3007 控制器（SPI2, 142x428, rotate 270, fbtft） |
-| 风扇 | PWM 风扇（内核 channel 1, 20kHz） |
-| WiFi | 无（E87N 无 WiFi 功能） |
+| SoC | MediaTek MT7987A（4×Cortex-A53，内置 2.5G PHY） |
+| 内存 / 存储 | 1 GiB DDR4 / 8 GB eMMC（p1 env、p2 factory、p3 fip、p4 kernel、p5 rootfs） |
+| 网口 | eth0 = 外置 RTL8221B 2.5G（MDIO 3）；eth1 = 内建 MT7987 2.5G PHY（MDIO 15） |
+| 扩展 | 双 M.2 2230（PCIe0/PCIe1，NVMe）、USB 3.2 A 口 |
+| 显示 | NewVision NV3007 1.65" 428×142 SPI 屏 + GPIO524 背光 |
+| 其它 | PWM 风扇、绿色/琥珀双 LED、reset 键、串口 115200 8N1 |
+| 无线 | **无 WiFi**（E87N 没有无线模块，M.2 槽位按 NVMe 使用） |
 
-~~没考虑大家的"创意工坊"~~
+---
 
-## 已实现功能
+## 功能
 
-- 网口：`en8811h` 驱动，eth0（LAN）+ eth1（WAN），2.5G 速率
-- 屏幕：`fb_nv3007` 驱动（编译进内核，非模块），`pwm-backlight` 背光（PWM2 通道）
-- 风扇：PWM 调速，LuCI 风扇曲线控制
-- 硬件 NAT：MT7987 PPE flow offload（`kmod-nft-offload` / `kmod-ipt-offload`，firewall 默认启用）
-- 存储：eMMC rootfs + f2fs overlay（fstools `rootfs_data`，不占用 FIP/U-Boot 分区）
-- 系统升级：sysupgrade（`emmc_do_upgrade`，同时更新 kernel 与 rootfs 分区）
-- WebUI：LuCI + 快速向导（quickstart）+ E87N 风扇/屏幕/LVGL 上传控制（luci-app-e87n） **（目前未验证屏幕功能是否有效）**
-- 注：当前固件未内建docker
+- **网络**：双 2.5G、VLAN/PPPoE、IPv6（RA/DHCPv6/NDP relay）、fullcone
+- **硬件加速**：`mtk_eth_soc` + PPE 硬件 NAT、`nf_flow_table` + `nft_flow_offload`
+  （`firewall` 默认 `flow_offloading=1`、`flow_offloading_hw=1`）
+- **风扇**：`fan-control` 温度→占空比曲线（百分比可调，LuCI 画布拖拽）
+- **屏幕**：内核 `fb_nv3007`（fbtft）+ 用户态 `e87n-display`（LVGL 9.4），
+  4 个内置页面 + 轮播，支持**导入自定义主题**
+- **指标接口**：`/var/run/e87n/metrics.json` 每秒刷新，另有 `ubus call e87n status`
+- **每日一言**：`e87n-saying` 从 uapis.cn 取句并缓存，离线时用内置兜底句
 
-## 构建方法
+---
 
-### 通过 GitHub Actions（推荐）
+## 构建
 
-虽然可以直接用作者编译好的现成固件，但想在自己账号下自己构建的也可按以下步骤：
+固件在 GitHub Actions 上构建，本机不需要工具链。
 
-1. **Fork 仓库**：访问 [micmtop/istoreos-for-edgepi-e87n](https://github.com/micmtop/istoreos-for-edgepi-e87n)，点击右上角 `Fork`。
-2. **启用 GitHub Actions**：Fork 后进入自己的仓库 → `Settings` → `Actions` → `General` → `Actions permissions` 选择 **Allow all actions and reusable workflows** → 保存。（Fork 默认禁用 Actions，必须手动开启）
-3. **触发构建**（二选一）：
-   - 手动：`Actions` → 左侧 `E87N Build` → 右侧 `Run workflow` → 选 `main` 分支 → `Run workflow`。无需改任何代码即可构建。
-   - 自动：修改代码后推送到自己仓库的 `main` 分支（仅改 `*.md` 等文档不会触发）。
-4. **等待构建**：首次构建无缓存（dl/工具链/ccache 都在原仓库，fork 是全新的），需全量下载依赖并编译，耗时较长；之后再次构建会命中缓存，明显加快。
-5. **下载固件**：构建完成后，进入该次运行的页面 → 底部 `Artifacts` → 下载 `e87n-istoreos-firmware`，解压得到 `istoreos-mediatek-filogic-edgepi_e87n-squashfs-sysupgrade.bin`。
-6. **刷机**：见下文"刷机方法"。
-
-注意事项：
-
-- 本仓库不含 iStoreOS 源码与工具链，构建时由 Actions 自动克隆 iStoreOS 24.10 并应用补丁（`apply.sh` + `e87n.config`），fork 后无需额外配置。
-- 如需定制：修改 `e87n.config` 可增删预装软件包，修改 `package/`、`files/` 可加自定义程序与驱动/补丁，改完重新构建即可。
-
-### 本地构建
+| Workflow | 用途 | 耗时 |
+|---|---|---|
+| `E87N Build` | 整机固件（内核 + 包 + rootfs），push 到 main 自动触发 | 首次 ~1.5 h |
+| `E87N Kernel Only` | 只编内核并生成 FIT，改了驱动/DTS 时用 | 首次 ~40 min，之后 ~10 min |
+| `E87N Theme Build` | 只交叉编译 `themes/<name>/` 出主题包 | 首次 ~20 min，之后 ~5 min |
 
 ```bash
-# 依赖 iStoreOS 24.10 源码与 OpenWrt 构建工具链
-git clone -b istoreos-24.10 https://github.com/istoreos/istoreos.git istoreos
-bash apply.sh              # 应用 E87N + MT7987 补丁
-cp e87n.config .config
-make defconfig
-make -j$(nproc) V=s
+# 整机（也可直接 push）
+gh workflow run build.yml -R micmtop/istoreos-for-edgepi-e87n
+# 只编内核
+gh workflow run kernel-only.yml -R micmtop/istoreos-for-edgepi-e87n
+# 只编主题
+gh workflow run theme-build.yml -R micmtop/istoreos-for-edgepi-e87n -f theme=aurora
 ```
 
-## 刷机方法
+`apply.sh` 负责把 `files/` 覆盖进 iStoreOS 源码树：设备树、内核补丁、E87N 设备定义、
+内核 Kconfig 符号注入。
 
-### sysupgrade（运行中系统）
+---
 
-```bash
-# 上传固件到 /tmp（使用带前缀文件名，避免与 /tmp/root 冲突）
-sysupgrade -n /tmp/e87n_sysupgrade.bin
+## 刷机
+
+固件产物是 `*squashfs-sysupgrade.bin`（tar 包，内含 `kernel` 和 `root`）。
+
+**注意 p4**：U-Boot 从独立的 p4 分区加载内核 FIT，`sysupgrade` **不会**更新 p4。
+内核有改动时必须单独写：
+
+```sh
+# 只在系统能起来时做；写前先备份并核对分区
+sha256sum /dev/mmcblk0p3          # 记录，事后必须一致
+dd if=/tmp/kernel of=/dev/mmcblk0p4 bs=4096
+sync; head -c <FIT 长度> /dev/mmcblk0p4 | sha256sum   # 回读校验
 ```
 
-sysupgrade 会通过 `emmc_do_upgrade` 同时更新 p4（kernel FIT）与 p5（rootfs）。
+**永远不要写 p3（FIP/U-Boot）**。eMMC 引导区的 BL2 与 p3 里的 FIP/BL31 必须成对，
+单独替换其中一半会卡在 `BL2: Booting BL31`。恢复靠串口 RAM boot（`mtk_uartboot`）。
 
-### U-Boot WebUI 恢复
+写入 eMMC 只用**分区设备**（`/dev/mmcblk0pN`），不要用整盘 + seek。
 
-1. 冷启动后按住 reset 约 10 秒，进入 U-Boot httpd 恢复模式
-2. 电脑网卡设静态 IP `192.168.1.2/24`
-3. 浏览器访问 `http://192.168.1.1`，上传完整固件包
+---
 
-## 恢复与排障
+## 屏幕与主题
 
-- eMMC 分区：p4 = kernel（FIT），p5 = rootfs（squashfs + f2fs overlay）
-- 写 eMMC 必须使用分区设备（`/dev/mmcblk0pN`），绝不用整盘
-- U-Boot 环境：`bootcmd=mtkautoboot`、`button_cmd_0_name=reset`、`button_cmd_0=httpd`
-- 若 U-Boot 无法启动，需通过 TTL 串口（3.3V，115200 8N1）使用 `mtk_uartboot` RAM boot 恢复
-- ~~作者也都踩坑过~~
+内置页面：系统概况 / 时间 / 网速图表 / 圆弧状态，支持轮播与自定义文本。
 
-## 免责声明
+### 导入自定义主题
 
-刷机有变砖风险，请自行评估后再操作。本项目按现状提供，不保证任何功能在您的设备上可用（在这里也欢迎大家来提issue）。
+LuCI → **屏幕控制 → 主题**，上传 `tar.gz` 后主题会出现在"显示页面"下拉里。主题包结构：
+
+```
+theme.json     {"name":"我的主题"}
+app            aarch64 ELF（自己画屏，可用下面的指标接口）
+frame.raw      428x142 RGB565 整帧（静态画面，121552 字节）
+```
+`app` 与 `frame.raw` 二选一。安装时会校验 ELF 架构与整帧长度。
+
+命令行等价：
+
+```sh
+e87n-theme install mytheme.tar.gz
+uci set e87n-display.global.page=theme:mytheme
+uci commit e87n-display && /etc/init.d/e87n-display restart
+```
+
+参考实现：`themes/aurora/`（暗色 + 琥珀色数字 + 分段电平条 + 扫描线，显示时间、
+温度、上下行、IP、在线数、每日一言）。
+
+### 指标接口（给自定义程序）
+
+```sh
+cat /var/run/e87n/metrics.json     # 1 Hz，原子写入
+ubus call e87n status
+```
+
+```c
+#include "e87n_metrics.h"          /* docs/sdk/，设备上也在 /usr/share/e87n-sdk/ */
+e87n_metrics_t m;
+if (e87n_metrics_read(&m) == 0)
+    printf("%d°C  %lu B/s  %d clients\n", m.temp_c, m.rx_bps, m.clients);
+```
+
+字段见 `docs/LVGL-CUSTOM-IMPORT.md`。控制类操作（开关屏/切页/风扇）用
+`screen-ctl`、`fanctl` 或 CGI，不建议直接写 GPIO。
+
+---
+
+## 自检
+
+设备上直接跑，只读、不改状态：
+
+```sh
+sh tools/acceptance.sh
+```
+
+覆盖系统/overlay、eMMC 分区、网口与 PHY 绑定、HNAT 与 flow offload、风扇温度、
+LED、USB、PCIe/NVMe、屏幕背光、服务与接口、主题。
+
+---
+
+## 已知限制
+
+- **无 WiFi**：E87N 没有无线硬件，M.2 槽位是 NVMe。
+- **PCIe 需要插卡才会 link up**：空槽位时 `mtk-pcie-gen3` 会报
+  `link down, current LTSSM state: detect.quiet`，这是正常现象；插上 NVMe 才能验证。
+- **WAN 未实机验证**：目前测试环境没有外网线路，PPPoE/VLAN 1150 只能等有线路时验证。
+- 背光为 GPIO524 直控（低电平点亮），没有走 `/sys/class/backlight`。
+
+---
+
+## 目录
+
+```
+apply.sh                     把 files/ 应用进 iStoreOS 源码树
+e87n.config                  目标配置（包选择、内核符号）
+files/target/linux/mediatek/dts/        MT7987 dtsi + E87N 板级 DTS
+files/target/linux/mediatek/patches-6.6/ 内核补丁（mtk_eth / 2.5G PHY / fbtft-NV3007）
+package/e87n-tools           风扇、背光、指标、一言、主题管理（纯脚本）
+package/e87n-display         LVGL 显示程序（内置 4 页）
+package/luci-app-e87n        LuCI 页面 + CGI
+package/mt7987-2p5g-phy-firmware     内建 2.5G PHY 固件
+themes/aurora                示例主题（可复制改造）
+docs/                        主题/指标接口文档、SDK、验收记录
+tools/acceptance.sh          硬件与功能自检
+```
