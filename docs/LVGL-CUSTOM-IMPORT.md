@@ -87,11 +87,15 @@ if (e87n_metrics_read(&m) == 0) {
 theme.json      （必需）{"name":"我的主题","desc":"可选说明"}
 app             （二选一）aarch64 ELF —— type=app，程序自己画屏
 frame.raw       （二选一）428x142 RGB565 整帧，121552 字节 —— type=image，静态画面
+font.ttf        （可选）随主题一起装的字体，app 自行加载（见 2.5）
 ```
 
 - `app` 必须是 **aarch64 ELF**（安装时会校验 ELF magic + `EM_AARCH64`）。
 - `frame.raw` 必须正好 `121552` 字节（安装时校验）。
 - 有 `app` 就按 app 运行；否则按 image 显示。
+- `font.ttf` 没装也可以，主题自己决定是否要用；装了就在主题目录里，
+  app 用 `argv[0]` 推出同目录路径即可加载（主题目录固定为
+  `/etc/e87n-display/themes/<id>/`）。
 
 ### 2.2 安装 / 使用
 
@@ -177,6 +181,49 @@ e87n-theme install mytheme.tar.gz
 静态画面不会刷新（没有实时数据）。要显示温度/网速就做 `type=app`。
 
 ---
+
+### 2.5 中文显示（字体打包）
+
+内置的 `lv_font_source_han_sans_sc_16_cjk` 只带 1338 个常用字，`临渊羡鱼`、`在线`
+这类字会显示成方框。要显示完整中文，把字体裁好塞进主题包：
+
+```sh
+# 1) 裁一个覆盖 GB2312 全集的子集（7542 字，约 1.2 MB）
+python -m fontTools.subset wqy-microhei.ttc     --text-file=gb2312.txt     --output-file=themes/mine/font.ttf     --layout-features='*' --no-hinting
+
+# 2) 主题 lv_conf.h 里打开 Tiny TTF
+#    #define LV_USE_TINY_TTF 1
+
+# 3) 运行期加载（main.c）
+#include "lvgl.h"                       /* 已包含 lv_tiny_ttf.h */
+
+static lv_font_t *font;
+
+static void load_font(const char *argv0)
+{
+    char path[512];
+    FILE *f;
+    long n;
+    void *buf;
+
+    snprintf(path, sizeof(path), "%.*s/font.ttf",
+             (int)(strrchr(argv0, '/') - argv0), argv0);
+    if (!(f = fopen(path, "rb")))
+        return;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf = malloc((size_t)n);
+    fread(buf, 1, (size_t)n, f);
+    fclose(f);
+    font = lv_tiny_ttf_create_data(buf, (size_t)n, 16);   /* 16px */
+}
+```
+
+- 内存占用：字体文件原样留在内存里，1.2 MB 字体约等于 1.2 MB RSS；设备是 1 GB，够用。
+- 4 MB 以上的字体不建议塞主题包（安装时要解压进 overlay）。
+- 没有 `font.ttf` 时主题应回退到内置 CJK 字体，别让程序崩掉。
+- 只需几个字的话，用 `--text=在线临渊羡鱼` 直接生成几十 KB 的极小字体也够。
 
 ## 3. 其他导入方式（保留）
 
