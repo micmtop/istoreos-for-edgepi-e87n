@@ -1,0 +1,33 @@
+#!/bin/sh
+# /usr/libexec/rpcd/e87n - 通过 rpcd exec 暴露 ubus 对象 "e87n"
+#
+#   ubus call e87n status    -> 与 /var/run/e87n/metrics.json 相同的 JSON
+#   ubus call e87n metrics   -> 同上（别名）
+#
+# 说明: rpcd 内置 exec 插件会自动发现本目录下的脚本。
+#       LuCI/自定义程序都可直接调用，无需额外依赖。
+
+case "$1" in
+    list)
+        # 方法名 -> 参数表（空对象 = 无参数）
+        echo '{"status":{},"metrics":{}}'
+        ;;
+    call)
+        case "$2" in
+            status|metrics)
+                if [ -x /usr/sbin/e87n-metrics ]; then
+                    /usr/sbin/e87n-metrics json
+                else
+                    echo '{"ok":0,"err":"e87n-metrics not installed"}'
+                fi
+                ;;
+            *)
+                echo '{"ok":0,"err":"unknown method"}'
+                ;;
+        esac
+        ;;
+    *)
+        echo '{"ok":0,"err":"usage: e87n list|call"}' >&2
+        exit 1
+        ;;
+esac

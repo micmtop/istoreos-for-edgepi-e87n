@@ -1,0 +1,160 @@
+#!/bin/sh
+# e87n-metrics - E87N 指标采集 / 对外接口
+#
+# 用法:
+#   e87n-metrics once     计算一次并打印 JSON
+#   e87n-metrics json     打印缓存 JSON（daemon 未运行则退化为 once）
+#   e87n-metrics daemon   每秒刷新 /var/run/e87n/metrics.json（给自定义 LVGL 程序读）
+#
+# 对外字段（数值未知时为 -1，字符串未知时为 ""）:
+#   ok ts uptime
+#   temp_c temp_ok fan_pwm fan_pct fan_mode
+#   cpu_pct ram_pct disk_pct
+#   rx_bps tx_bps net_iface          (bps = bytes/second，与屏幕上的「下载/上传」同源)
+#   wan_ip wan6 lan_ip lan6
+#   backlight display_page
+#
+# 自定义 LVGL 程序读取方式（不需要任何库）:
+#   read() /var/run/e87n/metrics.json，或 C 侧用 docs/sdk/e87n_metrics.c
+#   也可: ubus call e87n status
+
+STATE=/var/run/e87n
+JSON=$STATE/metrics.json
+ST=$STATE/net.state
+BL_STATE=/tmp/e87n-bl.state
+
+uci_get() { uci -q get "$1" 2>/dev/null; }
+
+IFACE=$(uci_get e87n-display.global.iface); [ -n "$IFACE" ] || IFACE=br-lan
+
+find_first() {   # 返回第一个可读路径
+    for f in "$@"; do [ -r "$f" ] && { printf '%s' "$f"; return 0; }; done
+    return 1
+}
+
+TEMP_FILE=$(find_first /sys/class/thermal/thermal_zone0/temp /sys/class/hwmon/hwmon*/temp1_input)
+PWM_FILE=$(find_first /sys/class/hwmon/hwmon*/pwm1)
+
+net_counters() {   # $1=iface -> "rx tx"
+    awk -v i="$1" '{ gsub(/^ +/,""); if (index($0, i":")==1) { sub(/^[^:]*:/,""); print $1, $9; exit } }' /proc/net/dev 2>/dev/null
+}
+
+cpu_counters() {   # -> "total busy"
+    awk '/^cpu /{ t=0; for (n=2;n<=NF;n++) t+=$n; printf "%d %d\n", t, t-$5-$6; exit }' /proc/stat 2>/dev/null
+}
+
+mem_counters() {   # -> "total_kb avail_kb"
+    awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{if (t>0) printf "%d %d\n", t, a}' /proc/meminfo 2>/dev/null
+}
+
+disk_pct() {
+    df -k / 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5; exit}'
+}
+
+ip4() { ip -4 addr show "$1" 2>/dev/null | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}'; }
+ip6() { ip -6 addr show "$1" scope global 2>/dev/null | awk '/inet6 /{sub(/\/.*/,"",$2); print $2; exit}'; }
+
+wan4() {
+    v=$(ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
+    [ -n "$v" ] || v=$(ip4 pppoe-wan)
+    [ -n "$v" ] || v=$(uci_get network.wan.ipaddr)
+    printf '%s' "$v"
+}
+wan6() {
+    v=$(ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null)
+    [ -n "$v" ] || v=$(ip6 pppoe-wan)
+    printf '%s' "$v"
+}
+
+esc() { printf '%s' "$1" | sed 's/[\\"]/ /g'; }
+
+emit() {
+    mkdir -p "$STATE"
+
+    now=$(date +%s 2>/dev/null); [ -n "$now" ] || now=0
+    uptime=$(cut -d. -f1 /proc/uptime 2>/dev/null); [ -n "$uptime" ] || uptime=0
+
+    # ---- 网络速率（与内置 UI 同源：/proc/net/dev + 差分）----
+    set -- $(net_counters "$IFACE"); rx=${1:-0}; tx=${2:-0}
+    case "$rx" in ''|*[!0-9]*) rx=0;; esac
+    case "$tx" in ''|*[!0-9]*) tx=0;; esac
+
+    # ---- CPU / 内存 / 磁盘 ----
+    set -- $(cpu_counters); ct=${1:-0}; cb=${2:-0}
+    set -- $(mem_counters); mt=${1:-0}; ma=${2:-0}
+
+    prx=0; ptx=0; pct=0; pcb=0; pts=$now
+    [ -r "$ST" ] && read prx ptx pct pcb pts < "$ST" 2>/dev/null
+    case "$pts" in ''|*[!0-9]*) pts=$now;; esac
+    dt=$((now - pts)); [ "$dt" -lt 1 ] && dt=1
+
+    [ "$rx" -lt "$prx" ] && prx=$rx          # 计数器回绕/重置保护
+    [ "$tx" -lt "$ptx" ] && ptx=$tx
+    rx_bps=$(( (rx - prx) / dt ))
+    tx_bps=$(( (tx - ptx) / dt ))
+
+    dct=$((ct - pct)); dcb=$((cb - pcb))
+    if [ "$dct" -gt 0 ] && [ "$dcb" -ge 0 ]; then cpu_pct=$(( dcb * 100 / dct )); else cpu_pct=0; fi
+    if [ "$mt" -gt 0 ]; then ram_pct=$(( (mt - ma) * 100 / mt )); else ram_pct=0; fi
+    dp=$(disk_pct); [ -n "$dp" ] || dp=0
+
+    printf '%s %s %s %s %s\n' "$rx" "$tx" "$ct" "$cb" "$now" > "$ST.tmp" 2>/dev/null && mv "$ST.tmp" "$ST" 2>/dev/null
+
+    # ---- 温度 / 风扇 ----
+    temp_c=-1; temp_ok=0
+    if [ -n "$TEMP_FILE" ]; then
+        raw=$(cat "$TEMP_FILE" 2>/dev/null)
+        div=$(uci_get fan.global.temp_divisor); [ -n "$div" ] || div=1000
+        case "$raw" in
+            ''|*[!0-9-]*) ;;
+            *) temp_c=$(( raw / div )); temp_ok=1 ;;
+        esac
+    fi
+    fan_pwm=-1; fan_pct=-1
+    if [ -n "$PWM_FILE" ]; then
+        p=$(cat "$PWM_FILE" 2>/dev/null)
+        case "$p" in
+            ''|*[!0-9]*) ;;
+            *) fan_pwm=$p; fan_pct=$(( p * 100 / 255 )) ;;
+        esac
+    fi
+    fan_mode=$(uci_get fan.global.mode); [ -n "$fan_mode" ] || fan_mode=auto
+
+    # ---- 字符串类 ----
+    wan_ip=$(wan4); wan_ip6=$(wan6)
+    lan_ip=$(ip4 br-lan); [ -n "$lan_ip" ] || lan_ip=$(uci_get network.lan.ipaddr)
+    lan_ip6=$(ip6 br-lan)
+
+    bl=$(cat "$BL_STATE" 2>/dev/null); [ -n "$bl" ] || bl=unknown
+    page=$(uci_get e87n-display.global.page); [ -n "$page" ] || page=1
+
+    printf '{"ok":1,"ts":%s,"uptime":%s,' "$now" "$uptime"
+    printf '"temp_c":%s,"temp_ok":%s,' "$temp_c" "$temp_ok"
+    printf '"cpu_pct":%s,"ram_pct":%s,"disk_pct":%s,' "$cpu_pct" "$ram_pct" "$dp"
+    printf '"fan_pwm":%s,"fan_pct":%s,"fan_mode":"%s",' "$fan_pwm" "$fan_pct" "$(esc "$fan_mode")"
+    printf '"rx_bps":%s,"tx_bps":%s,"net_iface":"%s",' "$rx_bps" "$tx_bps" "$(esc "$IFACE")"
+    printf '"wan_ip":"%s","wan6":"%s","lan_ip":"%s","lan6":"%s",' \
+        "$(esc "$wan_ip")" "$(esc "$wan_ip6")" "$(esc "$lan_ip")" "$(esc "$lan_ip6")"
+    printf '"backlight":"%s","display_page":"%s"}\n' "$(esc "$bl")" "$(esc "$page")"
+}
+
+case "$1" in
+    once)
+        emit
+        ;;
+    json)
+        if [ -r "$JSON" ]; then cat "$JSON"; else emit; fi
+        ;;
+    daemon)
+        mkdir -p "$STATE"
+        trap 'exit 0' INT TERM
+        while :; do
+            emit > "$JSON.tmp" 2>/dev/null && mv "$JSON.tmp" "$JSON" 2>/dev/null
+            sleep 1
+        done
+        ;;
+    *)
+        echo "Usage: $0 once|json|daemon" >&2
+        exit 1
+        ;;
+esac

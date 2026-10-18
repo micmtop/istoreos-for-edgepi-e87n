@@ -1,0 +1,6 @@
+#!/bin/sh
+# 首次启动：启用并拉起指标守护（/var/run/e87n/metrics.json + ubus e87n）
+[ -x /usr/sbin/e87n-metrics ] || exit 0
+/etc/init.d/e87n-metrics enable >/dev/null 2>&1
+/etc/init.d/e87n-metrics restart >/dev/null 2>&1
+exit 0

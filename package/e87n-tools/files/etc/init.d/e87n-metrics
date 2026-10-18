@@ -1,0 +1,24 @@
+#!/bin/sh /etc/rc.common
+# E87N 指标守护：每秒刷新 /var/run/e87n/metrics.json
+# 自定义 LVGL 程序只读这个文件即可拿到温度/网速等数据，不用自己解析 /proc。
+# 与 e87n-display 相互独立：即使显示程序被替换，指标仍然持续更新。
+
+START=99
+STOP=10
+USE_PROCD=1
+
+start_service() {
+    [ -x /usr/sbin/e87n-metrics ] || return 0
+    mkdir -p /var/run/e87n
+    procd_open_instance
+    procd_set_param command /usr/sbin/e87n-metrics daemon
+    procd_set_param respawn 3600 5 0
+    procd_set_param stdout 0
+    procd_set_param stderr 0
+    procd_close_instance
+}
+
+reload_service() {
+    stop
+    start
+}
