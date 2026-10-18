@@ -71,11 +71,18 @@ jobs:
           grep -q '^CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n=y' .config
 
       - name: Build cross toolchain
+        # 缓存命中时直接跳过（命中与否用 gcc 是否存在判断，比 make 的
+        # stamp 可靠：修复缓存恢复后仍白跑 30 分钟的问题）
         run: |
           set -o pipefail
           cd build/istoreos
-          make -j4 V=s tools/compile 2>&1 | tail -20
-          make -j4 V=s toolchain/compile 2>&1 | tail -20
+          if ls staging_dir/toolchain-*/bin/aarch64-openwrt-linux-musl-gcc >/dev/null 2>&1; then
+            echo "toolchain 已从缓存恢复，跳过编译"
+          else
+            echo "toolchain 未命中缓存，开始编译（约 30 分钟）"
+            make -j4 V=s tools/compile 2>&1 | tail -20
+            make -j4 V=s toolchain/compile 2>&1 | tail -20
+          fi
           ls -d staging_dir/toolchain-*/bin/aarch64-openwrt-linux-musl-gcc
 
       - name: Build theme
