@@ -3,8 +3,11 @@
 给 **EdgePi / Hiveton E87N（MT7987A）** 路由器编译的 iStoreOS 固件。仓库里是构建脚本、
 设备树、内核补丁、自研软件包和 CI，固件本体由 GitHub Actions 产出。
 
-当前基线：**iStoreOS 25.12.5（内核 6.12）**，产物已在实机验证（见
+当前基线：**iStoreOS 25.12.5（内核 6.12.94）**，产物已在实机验证（见
 `docs/MIGRATE-25.12.md` 第 6 节）。
+
+现成固件（含内核 FIT）在 Releases：
+<https://github.com/micmtop/istoreos-for-edgepi-e87n/releases>
 
 ---
 
