@@ -2,16 +2,28 @@ diff --git a/drivers/staging/fbtft/fb_nv3007.c b/drivers/staging/fbtft/fb_nv3007
 new file mode 100644
 --- /dev/null
 +++ b/drivers/staging/fbtft/fb_nv3007.c
-@@ -0,0 +1,272 @@
+@@ -0,0 +1,259 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * fbtft driver for the NewVision NV3007 142x428 SPI TFT panel
 + * (used on EdgePi E87N / Hiveton MT7987 routers)
 + *
 + * Compatible: "newvisionu,nv3007"
-+ * Geometry/timing are read from the device tree (width/height/rotate/
-+ * reset/dc/spi-max-frequency). Init sequences from the public NV3007
-+ * register map.
++ *
++ * This file is a register-level reconstruction of the OEM driver that is
++ * built into the vendor kernel (fw50x/official_kernel_img.bin).  Every
++ * register write, delay and window offset below was extracted from the
++ * disassembly of the OEM fb_nv3007 driver:
++ *
++ *   init_display  @ 0xffffffc0806f8858   (84 x write_reg + 3 x mdelay)
++ *   set_addr_win  @ 0xffffffc0806f84b8   (per-rotation +12/+14 offsets)
++ *   set_var       @ 0xffffffc0806f8594   (MADCTL 0x36 per rotation)
++ *   set_gamma     @ 0xffffffc0806f8660   (0xFF=0xA5, 0x60+0x10*i+j, 0xFF=0)
++ *   fbtft_display @ 0xffffffc080db5460   (428x142, bpp16, gamma 2x15)
++ *
++ * Do not "improve" these values: this is a vendor-specific NV3007 variant
++ * and register values from other NV3007 panels (TJ-Lab / ESPHome) do not
++ * work on this hardware.
 + */
 +
 +#include <linux/module.h>
@@ -22,143 +34,75 @@ new file mode 100644
 +#include "fbtft.h"
 +
 +#define DRVNAME "fb_nv3007"
++
 +/*
-+ * ==== 运行时实验参数 (/sys/module/fb_nv3007/parameters/) ====
-+ * 面板 IC 的 MV 行列交换行为与 CGRAM 列偏移缺少可靠文档(厂商资料不一致),
-+ * 窗口映射公式全部参数化, 刷机后可 SSH 直接热调, 无需重编:
-+ *   madctl_v : MADCTL 值 (0x00 原生 / 0x20 MV 交换 / 0x60 MX|MV / 0x30 MY|MV)
-+ *   swap_xy  : 1=fb-x 映射到 GRAM 行(需 MV); 0=fb-x 映射到 GRAM 列(原生)
-+ *   off_x    : fb-x 轴窗口偏移 (写入 CASET / PASET 之一, 视 swap_xy)
-+ *   off_y    : fb-y 轴窗口偏移
++ * OEM gamma string: two identical curves of 15 values (regs 0x60..0x6E and
++ * 0x70..0x7E), copied verbatim from the vendor kernel .rodata at 0xbe43f8.
 + */
-+static int madctl_v = 0x20;
-+static int swap_xy = 1;
-+static int off_x = 0;
-+static int off_y = 12;
-+module_param(madctl_v, int, 0644);
-+module_param(swap_xy, int, 0644);
-+module_param(off_x, int, 0644);
-+module_param(off_y, int, 0644);
-+MODULE_PARM_DESC(madctl_v, "NV3007 MADCTL value applied on every draw");
-+MODULE_PARM_DESC(swap_xy, "1=fb-x -> GRAM rows (needs MV), 0=fb-x -> GRAM cols (native)");
-+MODULE_PARM_DESC(off_x, "window offset along fb-x axis");
-+MODULE_PARM_DESC(off_y, "window offset along fb-y axis");
++#define NV3007_GAMMA_DEFAULT \
++	"00 02 04 07 05 02 21 23 3A 08 13 13 29 31 0f\n" \
++	"00 02 04 07 05 02 21 23 3A 08 13 13 29 31 0f"
 +
 +static int init_display(struct fbtft_par *par)
 +{
 +	par->fbtftops.reset(par);
++	write_reg(par, 0x11);	/* sleep out */
++	mdelay(5);
++	write_reg(par, 0x28);	/* display off */
 +
-+	/* Enter vendor-specific configuration mode */
-+	write_reg(par, 0xFF, 0xA5);
-+
-+	/* ==== Vendor specific configuration ====
-+	 * Whole sequence from TJ-Lab / Lovyan GFX Panel_NV3007.hpp
-+	 * (N279-1428KIWIG01-C1, 2.79" 142x428 NV3007, verified working).
-+	 * Do NOT mix values from other NV3007 variants (ESPHome etc):
-+	 * NV3007 init differs per panel vendor. */
++	/* ---- vendor configuration, 0xFF=0xA5 window ---- */
++	write_reg(par, 0xFF, 0xA5);	/* enter vendor command set */
 +	write_reg(par, 0x9A, 0x08);
 +	write_reg(par, 0x9B, 0x08);
 +	write_reg(par, 0x9C, 0xB0);
-+	write_reg(par, 0x9D, 0x16);
-+	write_reg(par, 0x9E, 0xC4);
-+	write_reg(par, 0x8F, 0x55, 0x04);
++	write_reg(par, 0x9D, 0x17);
++	write_reg(par, 0x9E, 0xC2);
++	write_reg(par, 0x8F, 0x22, 0x04);
 +	write_reg(par, 0x84, 0x90);
 +	write_reg(par, 0x83, 0x7B);
-+	write_reg(par, 0x85, 0x33);
-+
-+	/* ==== Gamma (TJ-Lab values) ==== */
-+	write_reg(par, 0x60, 0x00);
-+	write_reg(par, 0x70, 0x00);
-+	write_reg(par, 0x61, 0x02);
-+	write_reg(par, 0x71, 0x02);
-+	write_reg(par, 0x62, 0x04);
-+	write_reg(par, 0x72, 0x04);
-+	write_reg(par, 0x6C, 0x29);
-+	write_reg(par, 0x7C, 0x29);
-+	write_reg(par, 0x6D, 0x31);
-+	write_reg(par, 0x7D, 0x31);
-+	write_reg(par, 0x6E, 0x0F);
-+	write_reg(par, 0x7E, 0x0F);
-+	write_reg(par, 0x66, 0x21);
-+	write_reg(par, 0x76, 0x21);
-+	write_reg(par, 0x68, 0x3A);
-+	write_reg(par, 0x78, 0x3A);
-+	write_reg(par, 0x63, 0x07);
-+	write_reg(par, 0x73, 0x07);
-+	write_reg(par, 0x64, 0x05);
-+	write_reg(par, 0x74, 0x05);
-+	write_reg(par, 0x65, 0x02);
-+	write_reg(par, 0x75, 0x02);
-+	write_reg(par, 0x67, 0x23);
-+	write_reg(par, 0x77, 0x23);
-+	write_reg(par, 0x69, 0x08);
-+	write_reg(par, 0x79, 0x08);
-+	write_reg(par, 0x6A, 0x13);
-+	write_reg(par, 0x7A, 0x13);
-+	write_reg(par, 0x6B, 0x13);
-+	write_reg(par, 0x7B, 0x13);
-+	write_reg(par, 0x6F, 0x00);
-+	write_reg(par, 0x7F, 0x00);
-+
-+	/* ==== Timing parameters ==== */
++	write_reg(par, 0x85, 0x4F);
 +	write_reg(par, 0x50, 0x00);
-+	write_reg(par, 0x52, 0xD6); /* HBP */
-+	write_reg(par, 0x53, 0x08); /* HFP */
-+	write_reg(par, 0x54, 0x08); /* VBP */
-+	write_reg(par, 0x55, 0x1E); /* VFP */
-+	write_reg(par, 0x56, 0x1C);
-+
-+	/* ==== GOA / Scan (validated TJ-Lab demo) ==== */
-+	write_reg(par, 0xA0, 0x2B, 0x24, 0x00);
-+	write_reg(par, 0xA1, 0x87);
-+	write_reg(par, 0xA2, 0x86);
-+	write_reg(par, 0xA5, 0x00);
-+	write_reg(par, 0xA6, 0x00);
-+	write_reg(par, 0xA7, 0x00);
-+	write_reg(par, 0xA8, 0x36);
-+	write_reg(par, 0xA9, 0x7E);
-+	write_reg(par, 0xAA, 0x7E);
-+
-+	/* ==== Timing / GOA clock ==== */
-+	write_reg(par, 0xB9, 0x85);
-+	write_reg(par, 0xBA, 0x84);
-+	write_reg(par, 0xBB, 0x83);
-+	write_reg(par, 0xBC, 0x82);
-+	write_reg(par, 0xBD, 0x81);
-+	write_reg(par, 0xBE, 0x80);
-+	write_reg(par, 0xBF, 0x01);
-+	write_reg(par, 0xC0, 0x02);
-+	write_reg(par, 0xC1, 0x00);
-+	write_reg(par, 0xC2, 0x00);
-+	write_reg(par, 0xC3, 0x00);
-+
-+	/* ==== Power control ==== */
++	write_reg(par, 0x52, 0xD6);
++	write_reg(par, 0x53, 0x04);
++	write_reg(par, 0x54, 0x04);
++	write_reg(par, 0x55, 0x1B);
++	write_reg(par, 0x56, 0x1B);
++	write_reg(par, 0xA0, 0x2A, 0x24, 0x00);
++	write_reg(par, 0xA1, 0x84);
++	write_reg(par, 0xA2, 0x85);
++	write_reg(par, 0xA8, 0x34);
++	write_reg(par, 0xA9, 0x80);
++	write_reg(par, 0xAA, 0x73);
++	write_reg(par, 0xAB, 0x03, 0x61);
++	write_reg(par, 0xAC, 0x03, 0x65);
++	write_reg(par, 0xAD, 0x03, 0x60);
++	write_reg(par, 0xAE, 0x03, 0x64);
++	write_reg(par, 0xB9, 0x82);
++	write_reg(par, 0xBA, 0x83);
++	write_reg(par, 0xBB, 0x80);
++	write_reg(par, 0xBC, 0x81);
++	write_reg(par, 0xBD, 0x02);
++	write_reg(par, 0xBE, 0x01);
++	write_reg(par, 0xBF, 0x04);
++	write_reg(par, 0xC0, 0x03);
 +	write_reg(par, 0xC4, 0x33);
-+	write_reg(par, 0xC5, 0x7E);
-+	write_reg(par, 0xC6, 0x7E);
++	write_reg(par, 0xC5, 0x80);
++	write_reg(par, 0xC6, 0x73);
++	write_reg(par, 0xC7, 0x00);
 +	write_reg(par, 0xC8, 0x33, 0x33);
-+	write_reg(par, 0xC9, 0x68);
-+	write_reg(par, 0xCA, 0x69);
-+	write_reg(par, 0xCB, 0x6A);
-+	write_reg(par, 0xCC, 0x6B);
++	write_reg(par, 0xC9, 0x5B);
++	write_reg(par, 0xCA, 0x5A);
++	write_reg(par, 0xCB, 0x5D);
++	write_reg(par, 0xCC, 0x5C);
 +	write_reg(par, 0xCD, 0x33, 0x33);
-+	write_reg(par, 0xCE, 0x6C);
-+	write_reg(par, 0xCF, 0x6D);
-+	write_reg(par, 0xD0, 0x6E);
-+	write_reg(par, 0xD1, 0x6F);
-+
-+	write_reg(par, 0xAB, 0x03, 0x67);
-+	write_reg(par, 0xAC, 0x03, 0x6B);
-+	write_reg(par, 0xAD, 0x03, 0x68);
-+	write_reg(par, 0xAE, 0x03, 0x6C);
-+	write_reg(par, 0xB3, 0x00);
-+	write_reg(par, 0xB4, 0x00);
-+	write_reg(par, 0xB5, 0x00);
++	write_reg(par, 0xCE, 0x5F);
++	write_reg(par, 0xCF, 0x5E);
++	write_reg(par, 0xD0, 0x61);
++	write_reg(par, 0xD1, 0x60);
++	write_reg(par, 0xB0, 0x3A, 0x3A, 0x00, 0x00);
 +	write_reg(par, 0xB6, 0x32);
-+	write_reg(par, 0xB7, 0x7E);
-+	write_reg(par, 0xB8, 0x7E);
-+
-+	/* ==== Panel output ==== */
++	write_reg(par, 0xB7, 0x80);
++	write_reg(par, 0xB8, 0x73);
 +	write_reg(par, 0xE0, 0x00);
 +	write_reg(par, 0xE1, 0x03, 0x0F);
 +	write_reg(par, 0xE2, 0x04);
@@ -168,6 +112,7 @@ new file mode 100644
 +	write_reg(par, 0xE6, 0x19);
 +	write_reg(par, 0xE7, 0x10);
 +	write_reg(par, 0xE8, 0x10);
++	write_reg(par, 0xE9, 0x21);
 +	write_reg(par, 0xEA, 0x12);
 +	write_reg(par, 0xEB, 0xD0);
 +	write_reg(par, 0xEC, 0x04);
@@ -176,95 +121,138 @@ new file mode 100644
 +	write_reg(par, 0xEF, 0x09);
 +	write_reg(par, 0xF0, 0xD0);
 +	write_reg(par, 0xF1, 0x0E);
-+	write_reg(par, 0xF9, 0x17);
-+	write_reg(par, 0xF2, 0x2C, 0x1B, 0x0B, 0x20);
-+	write_reg(par, 0xE9, 0x29);
++	write_reg(par, 0xF9, 0x56);
++	write_reg(par, 0xF2, 0x26, 0x1B, 0x0B, 0x20);
 +	write_reg(par, 0xEC, 0x04);
-+
-+	/* ==== Tear on + scan line ==== */
 +	write_reg(par, 0x35, 0x00);
 +	write_reg(par, 0x44, 0x00, 0x10);
 +	write_reg(par, 0x46, 0x10);
++	write_reg(par, 0xFF, 0x00);	/* leave vendor command set */
++	write_reg(par, 0x3A, 0x05);	/* RGB565 */
 +
-+	/* exit vendor command mode */
-+	write_reg(par, 0xFF, 0x00);
-+
-+	/* ==== Standard MIPI / panel control ==== */
-+	write_reg(par, 0x3A, 0x05); /* RGB565 (TJ-Lab value) */
-+	write_reg(par, 0x11); /* sleep out */
++	/* ---- display on sequence ---- */
++	write_reg(par, 0x11);	/* sleep out */
 +	mdelay(200);
-+	/* MADCTL 与全窗口由模块参数决定(默认: 0x20/MV + CASET行无偏移 + PASET列+12)
-+	 * fbtft 不做软件旋转(rotate=270 仅交换 fb 尺寸为 428x142)。
-+	 * 运行时可调 _mode 经 sysfs 直接改变映射, set_addr_win() 每次全量重写。 */
-+	write_reg(par, 0x36, madctl_v);
-+	if (swap_xy) {
-+		/* fb-x -> GRAM 行 0..427, fb-y -> GRAM 列 12..153 */
-+		write_reg(par, 0x2A, 0x00, 0x00, 0x01, 0xAB);
-+		write_reg(par, 0x2B, 0x00, 0x0C, 0x00, 0x99);
-+	} else {
-+		/* fb-x -> GRAM 列 12..153, fb-y -> GRAM 行 0..427 */
-+		write_reg(par, 0x2A, 0x00, 0x0C, 0x00, 0x99);
-+		write_reg(par, 0x2B, 0x00, 0x00, 0x01, 0xAB);
-+	}
-+	mdelay(10);
-+
-+	/* Display On: without this the panel IC stays asleep
-+	 * and never outputs the framebuffer -> black screen. */
-+	write_reg(par, 0x29);
-+	mdelay(30);
++	write_reg(par, 0x29);	/* display on */
++	mdelay(150);
++	write_reg(par, 0x2A, 0x00, 0x0C, 0x00, 0x99);
++	write_reg(par, 0x2B, 0x00, 0x00, 0x01, 0xAB);
++	mdelay(20);
 +
 +	return 0;
 +}
 +
 +/*
-+ * blank(): FBTFT requires this hook for fb_blank() to work.
-+ * Without it fbtft-core's fb_blank returns -EINVAL, fb_info stays in
-+ * FB_BLANK_POWERDOWN and the panel never gets Display On -> black screen.
-+ * Unblank sends 0x29 (Display On); blank sends 0x28 (Display Off).
++ * blank(): on=true -> display off (0x28), on=false -> display on (0x29).
++ * The OEM version has the same writes plus debug-only trace branches.
 + */
 +static int blank(struct fbtft_par *par, bool on)
 +{
-+	if (on)
-+		write_reg(par, 0x28);	/* Display Off */
-+	else
-+		write_reg(par, 0x29);	/* Display On  */
++	write_reg(par, on ? 0x28 : 0x29);
++
 +	return 0;
 +}
 +
 +/*
-+ * set_addr_win(): fbtft streams fb rows (428x142, fx inner) and calls us
-+ * with fb coords (0..427, 0..141).  MADCTL MV: CASET(rows)=fb-x (0..427,
-+ * offset 0), PASET(cols)=fb-y+12 (12..153, offset 12).  Both axes must NOT
-+ * mix offsets the other way (CASET+12 -> rows 12..439 overflows GRAM 0..427
-+ * -> black screen).
++ * set_var(): MADCTL (0x36) selection, verbatim from OEM set_var().
++ * fbtft_register_framebuffer() calls this right after init_display().
++ *
++ *   rotate   0  -> 0xC0 | (bgr << 3)   (MX|MY)
++ *   rotate  90  -> 0x60 | (bgr << 3)   (MX|MV)
++ *   rotate 180  -> 0x00 | (bgr << 3)   (none)
++ *   rotate 270  -> 0xA0 | (bgr << 3)   (MY|MV)   <-- E87N DTB uses 270
++ */
++static int set_var(struct fbtft_par *par)
++{
++	switch (par->info->var.rotate) {
++	case 0:
++		write_reg(par, 0x36, 0xC0 | (par->bgr << 3));
++		break;
++	case 90:
++		write_reg(par, 0x36, 0x60 | (par->bgr << 3));
++		break;
++	case 180:
++		write_reg(par, 0x36, 0x00 | (par->bgr << 3));
++		break;
++	case 270:
++		write_reg(par, 0x36, 0xA0 | (par->bgr << 3));
++		break;
++	}
++
++	return 0;
++}
++
++/*
++ * set_addr_win(): GRAM window, verbatim from OEM set_addr_win().
++ *
++ * The OEM applies a per-rotation offset.  With rotate=270 the offset is +12
++ * on the y (PASET / 0x2B) axis only and none on x (CASET / 0x2A).  Adding
++ * the offset to both axes pushes the row range past the GRAM end (0..427)
++ * and results in a black screen.
 + */
 +static void set_addr_win(struct fbtft_par *par, int xs, int ys, int xe, int ye)
 +{
-+	int x0, x1, y0, y1;
-+
-+	/* 每次重写 MADCTL: 支持运行期热调参数而无需重新 init */
-+	write_reg(par, 0x36, madctl_v);
-+	if (swap_xy) {
-+		/* fb-x -> GRAM 行(加 off_x), fb-y -> GRAM 列(加 off_y) */
-+		x0 = xs + off_x; x1 = xe + off_x;
-+		y0 = ys + off_y; y1 = ye + off_y;
-+	} else {
-+		/* fb-y -> GRAM 列(加 off_y), fb-x -> GRAM 行(加 off_x) */
-+		x0 = ys + off_y; x1 = ye + off_y;
-+		y0 = xs + off_x; y1 = xe + off_x;
++	switch (par->info->var.rotate) {
++	case 0:
++		xs += 14;
++		xe += 14;
++		break;
++	case 90:
++		ys += 14;
++		ye += 14;
++		break;
++	case 180:
++		xs += 12;
++		xe += 12;
++		break;
++	case 270:
++		ys += 12;
++		ye += 12;
++		break;
 +	}
-+	write_reg(par, 0x2A, x0 >> 8, x0 & 0xFF, x1 >> 8, x1 & 0xFF);
-+	write_reg(par, 0x2B, y0 >> 8, y0 & 0xFF, y1 >> 8, y1 & 0xFF);
-+	write_reg(par, 0x2C);  /* Write Memory Start */
++
++	write_reg(par, 0x2A, (xs >> 8) & 0xFF, xs & 0xFF,
++		  (xe >> 8) & 0xFF, xe & 0xFF);
++	write_reg(par, 0x2B, (ys >> 8) & 0xFF, ys & 0xFF,
++		  (ye >> 8) & 0xFF, ye & 0xFF);
++	write_reg(par, 0x2C);	/* memory write */
++}
++
++/*
++ * set_gamma(): verbatim from OEM set_gamma().
++ * Writes curve 0 to 0x60..0x6E and curve 1 to 0x70..0x7E.
++ */
++static int set_gamma(struct fbtft_par *par, u32 *curves)
++{
++	int i, j;
++
++	write_reg(par, 0xFF, 0xA5);
++	for (i = 0; i < par->gamma.num_curves; i++) {
++		for (j = 0; j < par->gamma.num_values; j++) {
++			write_reg(par, 0x60 + 0x10 * i + j,
++				  curves[par->gamma.num_values * i + j]);
++		}
++	}
++	write_reg(par, 0xFF, 0x00);
++
++	return 0;
 +}
 +
 +static struct fbtft_display display = {
-+	.width = 142,
-+	.height = 428,
++	.regwidth = 8,
++	.buswidth = 8,
++	.width = 428,
++	.height = 142,
++	.bpp = 16,
++	.gamma = NV3007_GAMMA_DEFAULT,
++	.gamma_num = 2,
++	.gamma_len = 15,
 +	.fbtftops = {
 +		.init_display = init_display,
 +		.set_addr_win = set_addr_win,
-+		.blank       = blank,
++		.set_var = set_var,
++		.set_gamma = set_gamma,
++		.blank = blank,
 +	},
 +};
 +
@@ -272,9 +260,8 @@ new file mode 100644
 +
 +MODULE_ALIAS("spi:nv3007");
 +MODULE_AUTHOR("open-source E87N port");
-+MODULE_DESCRIPTION("fbtft driver for NewVision NV3007 SPI LCD");
++MODULE_DESCRIPTION("fbtft driver for NewVision NV3007 SPI LCD (OEM reconstruction)");
 +MODULE_LICENSE("GPL v2");
-+
 
 diff --git a/drivers/staging/fbtft/Kconfig b/drivers/staging/fbtft/Kconfig
 --- a/drivers/staging/fbtft/Kconfig
