@@ -11,9 +11,9 @@
 
         aliases {
                 led-boot = &led_sys;
-                led-running = &led_sys;
                 led-failsafe = &led_sys;
                 led-upgrade = &led_sys;
+                led-running = &led_sys;
                 serial0 = &uart0;
         };
 
@@ -32,24 +32,24 @@
                         gpios = <&pio 1 GPIO_ACTIVE_LOW>;
                         debounce-interval = <10>;
                 };
-
         };
 
         leds {
                 compatible = "gpio-leds";
-
-                /* 绿色 pio4：系统状态（boot/running/failsafe/upgrade） */
-                led_sys: led-sys {
-                        function = LED_FUNCTION_STATUS;
-                        color = <LED_COLOR_ID_GREEN>;
-                        gpios = <&pio 4 GPIO_ACTIVE_LOW>;
-                };
 
                 /* 琥珀 pio3：WAN 指示灯 */
                 led_wan: led-wan {
                         function = LED_FUNCTION_WAN;
                         color = <LED_COLOR_ID_AMBER>;
                         gpios = <&pio 3 GPIO_ACTIVE_LOW>;
+                };
+
+                /* 绿色 pio4：系统状态（boot/running/failsafe/upgrade） */
+                led_sys: led-sys {
+                        function = LED_FUNCTION_STATUS;
+                        color = <LED_COLOR_ID_GREEN>;
+                        gpios = <&pio 4 GPIO_ACTIVE_LOW>;
+                        default-state = "on";
                 };
         };
 
@@ -190,18 +190,57 @@
 &pcie0 {
         pinctrl-names = "default";
         pinctrl-0 = <&pcie0_pins>;
-        /* E87N 的 PCIe PERST# 接在 pio 36（高有效）；不接则控制器停在
-         * detect.quiet。本机没有 WiFi，M.2 槽位按 NVMe 使用，因此这里不描述
-         * mt76/mt7992 子节点。 */
         reset-gpios = <&pio 36 GPIO_ACTIVE_HIGH>;
         status = "okay";
 };
 
+/* 第二个 M.2 2230 槽位，无独立 reset GPIO。 */
 &pcie1 {
         pinctrl-names = "default";
         pinctrl-0 = <&pcie1_pins>;
-        /* 第二个 M.2 2230 槽位，无独立 reset GPIO。 */
         status = "okay";
+};
+
+/* SPI LCD (fb_nv3007): reset=GPIO10, dc=GPIO11 (reading from stock DTB) */
+&spi2 {
+        status = "okay";
+        pinctrl-names = "default";
+        pinctrl-0 = <&spi2_flash_pins>;
+
+        display@0 {
+                compatible = "newvisionu,nv3007";
+                reg = <0>;
+                regwidth = <8>;
+                buswidth = <8>;
+                height = <428>;
+                width = <142>;
+                fps = <100>;
+                rotate = <270>;  /* matches stock OEM DTB 0x10e ; native portrait */
+                reset-gpios = <&pio 10 GPIO_ACTIVE_LOW>;
+                dc-gpios = <&pio 11 GPIO_ACTIVE_HIGH>;
+                /* 52MHz: matches the stock/OEM DTB and the known-good
+                 * display state. Lowering to 20MHz was a wrong attempt to
+                 * "fix" a black screen that was actually caused by the init
+                 * sequence, not the SPI clock. Keep OEM's 0x3197500. */
+                spi-max-frequency = <52000000>;
+                status = "okay";
+        };
+};
+
+&pio {
+        pwm_fan_pins: pwm-fan-pins {
+                mux {
+                        function = "pwm";
+                        groups = "pwm1_0";
+                };
+        };
+
+        pwm_backlight_pins: pwm-backlight-pins {
+                mux {
+                        function = "pwm";
+                        groups = "pwm2_0";
+                };
+        };
 };
 
 &pwm {
