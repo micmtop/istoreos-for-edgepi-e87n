@@ -175,8 +175,18 @@ jobs:
 
       - name: Prepare kernel
         run: |
+          set -o pipefail
           cd build/istoreos
-          make CCACHE=y -j4 V=s tools/compile 2>&1 | tail -40
+          # host 工具（mkimage/lzma/...）
+          make CCACHE=y -j4 V=s tools/compile 2>&1 | tail -30
+          # 交叉编译器：全量 build.yml 是靠 make 全局目标顺带编的，
+          # 这条精简路径必须显式编，否则内核 syncconfig 报
+          #   C compiler 'aarch64-openwrt-linux-musl-gcc' not found
+          # 命中 toolchain 缓存时这里只是 stamp 检查，几秒钟。
+          make CCACHE=y -j4 V=s toolchain/compile 2>&1 | tail -30
+          GCC=$(ls -d staging_dir/toolchain-*/bin/aarch64-openwrt-linux-musl-gcc | head -1)
+          echo "compiler: $GCC"
+          "$GCC" --version | head -1
           # 内核树命中缓存时，.prepared 已存在，这一步基本空转。
           # build_module 需要重新 syncconfig，因此删除配置戳。
           if [ "${{ inputs.build_module }}" = "true" ]; then
