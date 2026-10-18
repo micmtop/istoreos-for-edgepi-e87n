@@ -108,19 +108,31 @@ grep -qi "xhci" /proc/interrupts 2>/dev/null && ok "xhci 中断已注册" || inf
 
 # ---------------- PCIe / NVMe ----------------
 echo "== PCIe / NVMe =="
-if [ -d /sys/bus/pci/devices ] && [ -n "$(ls /sys/bus/pci/devices 2>/dev/null)" ]; then
-    ok "PCI 总线有设备"
+# E87N 有两个 M.2 槽位：11280000 = M.2 2280，11290000 = M.2 2230
+n_ok=0
+for d in /proc/device-tree/soc/pcie@*; do
+    [ -d "$d" ] || continue
+    st=$(tr -d '\000' < "$d/status" 2>/dev/null)
+    st=${st:-okay}
+    info "控制器 $(basename $d) status=$st"
+    [ "$st" = "okay" ] && n_ok=$((n_ok + 1))
+done
+if [ "$n_ok" -ge 2 ]; then
+    ok "两个 PCIe 控制器都已启用"
+else
+    bad "PCIe 控制器启用数量 $n_ok（期望 2，检查 DTS 的 &pcie0 / &pcie1）"
+fi
+
+down=$(dmesg | grep -c "PCIe link down")
+if [ -n "$(ls /sys/bus/pci/devices 2>/dev/null)" ]; then
+    ok "PCI 总线有设备：$(ls /sys/bus/pci/devices | wc -l) 个"
     for d in /sys/bus/pci/devices/*; do
         info "  $(basename $d) vendor=$(cat $d/vendor 2>/dev/null) device=$(cat $d/device 2>/dev/null) class=$(cat $d/class 2>/dev/null)"
     done
-elif dmesg | grep -q "PCIe link down"; then
-    ok "PCIe 控制器已 probe，槽位无卡（link down 属正常）"
-    for d in /proc/device-tree/soc/pcie@*; do
-        st=$(tr -d '' < "$d/status" 2>/dev/null)
-        info "  $(basename $d) status=${st:-okay}"
-    done
+elif [ "$down" -gt 0 ]; then
+    ok "槽位空置（$down 条 link down，无卡属正常）"
 else
-    bad "PCIe 控制器未 probe（检查 DTS/驱动）"
+    bad "PCIe 既没有设备也没有 link down 记录（控制器可能没 probe）"
 fi
 if [ -d /sys/module/nvme ] || lsmod 2>/dev/null | grep -q '^nvme'; then ok "nvme 驱动已加载"; else info "nvme 驱动未加载（未插盘/未装包）"; fi
 
