@@ -1,0 +1,62 @@
+name: E87N Config Diag
+
+# 只做「feeds + defconfig」，不编译任何东西（约 5-8 分钟）。
+# 用途：查某个包为什么没进固件（依赖被静默丢弃时 defconfig 不会报错）。
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'iStoreOS 分支'
+        type: string
+        default: 'istoreos-25.12'
+
+jobs:
+  diag:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: build
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential gawk gettext libncurses-dev \
+            libssl-dev python3-distutils rsync unzip zlib1g-dev file wget git
+
+      - name: Clone iStoreOS
+        run: |
+          cd build
+          rm -rf istoreos
+          git clone -b ${{ inputs.branch }} --depth 1 https://github.com/istoreos/istoreos.git istoreos
+          cd istoreos
+          printf 'src-git nas https://github.com/linkease/nas-packages.git;linkeasefull\nsrc-git nas_luci https://github.com/linkease/nas-packages-luci.git;main\n' >> feeds.conf.default
+          ./scripts/feeds update -a > /tmp/feeds-update.log 2>&1
+          ./scripts/feeds install -a > /tmp/feeds-install.log 2>&1
+          tail -5 /tmp/feeds-install.log
+
+      - name: Feeds presence of the suspect packages
+        run: |
+          cd build/istoreos
+          for p in luci-app-store luci-app-quickstart luci-lib-taskd taskd mount-utils \
+                   libuci-lua liblua lua curl script-utils coreutils coreutils-stty; do
+            echo "=== $p"
+            ./scripts/feeds search "$p" 2>/dev/null | head -4
+          done
+
+      - name: Apply E87N + defconfig
+        run: |
+          cd build
+          bash apply.sh
+          cd istoreos
+          cp ../e87n.config .config
+          make defconfig > /tmp/defconfig.log 2>&1 || tail -30 /tmp/defconfig.log
+          echo "=== 关心的符号在最终 .config 里"
+          for s in luci-app-store luci-app-quickstart luci-lib-taskd luci-lib-xterm taskd \
+                   mount-utils libuci-lua liblua lua curl script-utils coreutils coreutils-stty; do
+            printf '%-24s %s\n' "$s" "$(grep -E "^CONFIG_PACKAGE_${s}=" .config || echo '-- 未设置 --')"
+          done
+          echo "=== defconfig 里和 store/quickstart 有关的警告"
+          grep -iE "store|quickstart|taskd" /tmp/defconfig.log | head -10
+          echo "=== 全部 luci-app 选中项"
+          grep -E '^CONFIG_PACKAGE_luci-app-' .config | sort
