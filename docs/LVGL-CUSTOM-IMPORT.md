@@ -24,7 +24,8 @@ cat /var/run/e87n/metrics.json
  "fan_pwm":109,"fan_pct":42,"fan_mode":"auto",
  "rx_bps":596,"tx_bps":686,"net_iface":"br-lan",
  "wan_ip":"","wan6":"","lan_ip":"192.168.100.1","lan6":"fdb6:a5a1:cf45::1",
- "backlight":"on","display_page":"4"}
+ "backlight":"on","display_page":"4",
+ "clients":3,"saying":"与其临渊羡鱼，不如退而结网。"}
 ```
 
 - 原子替换（写 `.tmp` 再 `mv`），不会读到半截；1 秒一次。
@@ -69,6 +70,8 @@ if (e87n_metrics_read(&m) == 0) {
 | `wan_ip` / `wan6` / `lan_ip` / `lan6` | string | 地址（未拨号时为空） |
 | `backlight` | string | on / off / unknown |
 | `display_page` | string | 1-4 / cycle / theme:<id> |
+| `clients` | int | 在线设备数（DHCP 租约 + ARP 按 MAC 去重） |
+| `saying` | string | 每日一言（uapis.cn，缓存；离线时为内置兜底句） |
 
 控制类（开关屏/切页/风扇）用 `screen-ctl`、`fanctl`、CGI，不建议自定义程序直接写 GPIO。
 
@@ -133,18 +136,42 @@ int main(void)
 - LVGL 需要一起编进去（设备上没有 `liblvgl.so`），参考 `package/e87n-display/src/CMakeLists.txt`；
 - 依赖 `+libstdcpp`（如果用了 C++/LVGL 的 C++ 部分）。
 
-示例主题骨架：`docs/sdk/example-theme/`（含生成 `frame.raw` 的脚本）。
+示例主题：**`themes/aurora/`**（完整可用，含 CMake、`lv_conf.h`、SDK 和打包脚本），
+建议直接拷一份改。
+
+#### 用 CI 编译（不用本机装工具链）
+
+```bash
+# themes/<name>/ 放好 main.c 后
+gh workflow run theme-build.yml -R micmtop/istoreos-for-edgepi-e87n -f theme=<name>
+gh run list -R micmtop/istoreos-for-edgepi-e87n -w "E87N Theme Build" -L 1
+gh run download <run-id> -R micmtop/istoreos-for-edgepi-e87n -n e87n-theme-<name>
+# 得到 theme-<name>.tar.gz -> LuCI「屏幕控制 → 主题」导入
+```
+
+首次（toolchain 缓存空）约 20 分钟，之后 **4–6 分钟**。
+
+#### 本地编译
+
+```bash
+cd themes/aurora
+CC=/path/to/aarch64-openwrt-linux-musl-gcc ./build.sh   # 出 aurora.tar.gz
+```
 
 ### 2.4 做一个 `type=image` 主题（不用编译）
 
 ```sh
-# 1) 准备一张 428x142 的图（或任意图，脚本会缩放）
-# 2) 生成 RGB565 原始帧
-python3 docs/sdk/example-theme/make-frame.py my.png frame.raw
-# 3) 打包
-cp docs/sdk/example-theme/theme.json .
+# 1) 生成 428x142 RGB565 整帧（不传图片则出彩条测试图）
+python3 docs/sdk/make-frame.py frame.raw
+python3 docs/sdk/make-frame.py frame.raw my.png   # 用自己的图（需 Pillow）
+
+# 2) 写 theme.json + 打包
+printf '{"name":"我的主题"}
+' > theme.json
 tar -czf mytheme.tar.gz theme.json frame.raw
-# 4) 在 LuCI 里导入，或 e87n-theme install mytheme.tar.gz
+
+# 3) LuCI 导入，或命令行
+e87n-theme install mytheme.tar.gz
 ```
 
 静态画面不会刷新（没有实时数据）。要显示温度/网速就做 `type=app`。
