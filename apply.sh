@@ -56,6 +56,23 @@ for P in "$ROOT"/files/target/linux/mediatek/patches-6.6/*.patch; do
     echo "    add  $BASE"
 done
 
+echo "==> [2.2/4] Install version-specific patches (files/.../patches-$KPVER)"
+# 6.12 的 mtk-2p5ge.c 是上游 701 补丁新建的文件，内容和 6.6 那份一致，
+# 所以 LED 极性修复可以按同样方式打，只是行号不同、要排在 701 之后（用 795）。
+if [ -d "$ROOT/files/target/linux/mediatek/patches-$KPVER" ]; then
+    for P in "$ROOT"/files/target/linux/mediatek/patches-$KPVER/*.patch; do
+        [ -f "$P" ] || continue
+        BASE=$(basename "$P")
+        NUM=${BASE%%-*}
+        if ls "$MT/patches-$KPVER/$NUM"-*.patch >/dev/null 2>&1; then
+            echo "    skip $BASE (number $NUM already present)"
+            continue
+        fi
+        cp -f "$P" "$MT/patches-$KPVER/"
+        echo "    add  $BASE ($KPVER-specific)"
+    done
+fi
+
 echo "==> [2.4/4] Fix mtk_eth_soc pextp PHY get (devm_of_phy_get -> optional_get)"
 # E87N net PHY (Airoha EN8811H on mdio-bus) is not described as a `phys`
 # phandle on the mac node, so mtk_add_mac()'s devm_of_phy_get() returns

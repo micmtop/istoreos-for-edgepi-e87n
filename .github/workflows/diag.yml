@@ -35,33 +35,38 @@ jobs:
           ./scripts/feeds install -a > /tmp/feeds-install.log 2>&1
           tail -5 /tmp/feeds-install.log
 
-      - name: Apply E87N + defconfig
+      - name: defconfig #1 (as-is)
         run: |
           cd build
           bash apply.sh
           cd istoreos
           cp ../e87n.config .config
-          make defconfig > /tmp/defconfig.log 2>&1 || tail -30 /tmp/defconfig.log
-          echo "=== 关心的符号在最终 .config 里"
-          for s in luci-app-store luci-app-quickstart luci-lib-taskd luci-lib-xterm taskd \
-                   mount-utils libuci-lua liblua lua curl script-utils coreutils coreutils-stty; do
-            printf '%-24s %s\n' "$s" "$(grep -E "^CONFIG_PACKAGE_${s}=" .config || echo 'NOT SET')"
+          make defconfig > /tmp/defconfig1.log 2>&1 || tail -20 /tmp/defconfig1.log
+          echo "=== 直接依赖链的展开结果（.packageinfo）"
+          for p in libuci-lua luci-lua-runtime luci-lib-taskd taskd luci-lib-xterm quickstart liblua; do
+            echo "--- $p"
+            awk -v pkg="$p" '$0 == "Package: " pkg {f=1} f{print} f && /^$/{exit}' tmp/.packageinfo | grep -E "^(Package|Depends|Provides|Menu|Conflicts):" 
           done
-          echo "=== 全部 luci-app 选中项"
-          grep -E '^CONFIG_PACKAGE_luci-app-' .config | sort
 
-      - name: Why were store/quickstart dropped (search whole buildroot)
+      - name: defconfig #2 (explicitly request the whole chain)
         run: |
           cd build/istoreos
-          for p in mount-utils liblua script-utils libuci-lua luci-lua-runtime; do
-            echo "=== who defines $p"
-            grep -rn "define Package/$p$" package feeds --include=Makefile 2>/dev/null | head -3
-            grep -rn "PROVIDES.*$p" package feeds --include=Makefile 2>/dev/null | head -2
-            grep -rn "PKG_NAME:=$p$" package feeds --include=Makefile 2>/dev/null | head -2
+          printf '%s\n' \
+            CONFIG_PACKAGE_libuci-lua=y \
+            CONFIG_PACKAGE_luci-lua-runtime=y \
+            CONFIG_PACKAGE_taskd=y \
+            CONFIG_PACKAGE_luci-lib-taskd=y \
+            CONFIG_PACKAGE_luci-lib-xterm=y \
+            CONFIG_PACKAGE_script-utils=y \
+            CONFIG_PACKAGE_coreutils=y \
+            CONFIG_PACKAGE_coreutils-stty=y \
+            CONFIG_PACKAGE_luci-app-store=y \
+            CONFIG_PACKAGE_luci-app-quickstart=y >> .config
+          make defconfig > /tmp/defconfig2.log 2>&1 || tail -20 /tmp/defconfig2.log
+          echo "=== 显式要求之后谁还活着"
+          for s in luci-app-store luci-app-quickstart luci-lib-taskd luci-lib-xterm taskd \
+                   libuci-lua luci-lua-runtime script-utils coreutils coreutils-stty; do
+            printf '%-24s %s\n' "$s" "$(grep -E "^CONFIG_PACKAGE_${s}=" .config || echo 'STILL DROPPED')"
           done
-          echo "=== store feed: luci-app-store 依赖行"
-          grep -E "DEPENDS" feeds/store/luci/luci-app-store/Makefile
-          echo "=== 展开后的 packageinfo: luci-app-store"
-          awk '/^Package: luci-app-store$/,/^$/' tmp/.packageinfo 2>/dev/null | head -20
-          echo "=== 展开后的 packageinfo: taskd"
-          awk '/^Package: taskd$/,/^$/' tmp/.packageinfo 2>/dev/null | head -14
+          echo "=== defconfig 第二次的警告（store/quickstart/taskd）"
+          grep -iE "store|quickstart|taskd|xterm|lua" /tmp/defconfig2.log | head -20
