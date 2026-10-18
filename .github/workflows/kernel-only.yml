@@ -1,12 +1,55 @@
 name: E87N Kernel Only
 
+# 只编内核 + 生成内核 FIT，不编任何包、不编 rootfs。
+# 用途：改 fb_nv3007.c / DTS / 内核补丁后的快速迭代（约 8-15 min/轮，冷启 ~35 min）。
+#
+# 缓存策略（actions/cache 的淘汰规则是固定的：7 天未被访问即删除，没有 retention 参数）：
+#   - toolchain / host tools / 内核构建树：固定 key，只在首次保存；
+#   - ccache：滚动 key（每次 save，用 restore-keys 捡最新的）；
+#   - 内核树额外镜像成 artifact（默认 90 天），缓存被淘汰时自动从 artifact 恢复。
+#
+# 关键点：key 只对「除 999 以外的补丁 + apply.sh + e87n.config + DTS」做哈希。
+# 因为驱动源码本身就在 999 补丁里，若把它算进 key，每次改驱动都会 cache miss。
+# 驱动源码每轮都会从 999 补丁里重新解出来写进内核树（见 Rewrite driver 步骤），
+# 所以改驱动既不会污染 quilt 状态，也不需要重建内核树。
+#
+# 若改动了 999 补丁中除 fb_nv3007.c 之外的部分（Kconfig / Makefile），
+# 请改 cache_bust 输入，强制重建内核树。
+
 on:
   workflow_dispatch:
+    inputs:
+      build_module:
+        description: 'Build fb_nv3007 as module (=m) and upload .ko for insmod iteration'
+        type: boolean
+        default: false
+      cache_bust:
+        description: 'Bump to invalidate the cached kernel tree'
+        type: string
+        default: 'v1'
+      artifact_retention_days:
+        description: 'Artifact retention in days (1-90)'
+        type: number
+        default: 90
+
+concurrency:
+  group: kernel-only-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   kernel:
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 1G
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h /
+
       - name: Checkout build repo
         uses: actions/checkout@v4
         with:
@@ -18,45 +61,110 @@ jobs:
           sudo apt-get install -y build-essential clang flex bison g++ gawk \
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3-distutils python3-setuptools rsync unzip zlib1g-dev \
-            file wget qemu-utils libelf-dev jq ccache
+            file wget libelf-dev jq ccache
 
       - name: Clone iStoreOS 24.10 source
         run: |
           cd build
-          git clone -b istoreos-24.10 --depth 1 https://github.com/istoreos/istoreos.git istoreos
-          cd istoreos
-          printf 'src-git nas https://github.com/linkease/nas-packages.git;linkeasefull\nsrc-git nas_luci https://github.com/linkease/nas-packages-luci.git;main\n' >> feeds.conf.default
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          # 不跑 feeds：内核构建不需要任何 feed 包，省 3-5 min。
+          git clone -b istoreos-24.10 --depth 1 \
+            https://github.com/istoreos/istoreos.git istoreos
 
-      - name: Cache OpenWrt downloads
-        uses: actions/cache@v4
-        with:
-          path: build/istoreos/dl
-          key: ${{ runner.os }}-dl-${{ hashFiles('build/e87n.config') }}
-          restore-keys: |
-            ${{ runner.os }}-dl-
+      - name: Compute cache keys
+        id: key
+        run: |
+          cd build
+          # 除 999 之外的内核补丁（驱动源码在 999 里，故意排除）
+          OTHER=$(find files/target/linux/mediatek/patches-6.6 -name '*.patch' \
+                    ! -name '999-*' -print0 | sort -z | xargs -0 -r sha256sum \
+                  | sha256sum | cut -c1-12)
+          # apply.sh / target 配置 / DTS
+          BASE=$(sha256sum apply.sh e87n.config \
+                   files/target/linux/mediatek/dts/*.dts* \
+                 | sha256sum | cut -c1-12)
+          MOD=$( [ "${{ inputs.build_module }}" = "true" ] && echo mod || echo builtin )
+          KTREE="ktree-${OTHER}${BASE}-${MOD}-${{ inputs.cache_bust }}"
+          echo "kernel_tree=$KTREE" >> "$GITHUB_OUTPUT"
+          echo "kernel tree cache key: $KTREE"
 
-      - name: Cache OpenWrt toolchain
-        uses: actions/cache@v4
+      # ---------------- caches ----------------
+
+      - name: Restore toolchain cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             build/istoreos/staging_dir/toolchain-*
             build/istoreos/build_dir/toolchain-*
           key: ${{ runner.os }}-toolchain-${{ hashFiles('build/e87n.config') }}
-          restore-keys: |
-            ${{ runner.os }}-toolchain-
+          restore-keys: ${{ runner.os }}-toolchain-
 
-      - name: Cache ccache
-        uses: actions/cache@v4
+      - name: Restore host tools cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/istoreos/staging_dir/host
+            build/istoreos/build_dir/host
+          key: ${{ runner.os }}-hosttools-${{ hashFiles('build/e87n.config', 'build/apply.sh') }}
+          restore-keys: ${{ runner.os }}-hosttools-
+
+      - name: Restore kernel build tree cache
+        id: ktree
+        uses: actions/cache/restore@v4
+        with:
+          path: build/istoreos/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic
+          key: ${{ steps.key.outputs.kernel_tree }}
+          # 只在同一补丁集内复用；补丁集变了就老老实实重新 prepare
+          restore-keys: |
+            ${{ steps.key.outputs.kernel_tree }}
+            ktree-
+
+      - name: Restore kernel tree from long-lived artifact (cache miss)
+        if: steps.ktree.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          RUN_ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=kernel-tree&per_page=50" \
+                     --jq '[.artifacts[] | select(.expired==false)] | sort_by(.created_at) | reverse | .[0].workflow_run.id' 2>/dev/null || true)
+          if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
+            echo "restoring kernel tree from artifact of run $RUN_ID"
+            rm -rf .ktree-artifact
+            gh run download "$RUN_ID" -n kernel-tree -D .ktree-artifact --repo "$GITHUB_REPOSITORY" || true
+            SRC=$(find .ktree-artifact -maxdepth 6 -type d -name 'linux-mediatek_filogic' | head -1)
+            if [ -n "$SRC" ]; then
+              mkdir -p build/istoreos/build_dir/target-aarch64_cortex-a53_musl
+              cp -a "$SRC" build/istoreos/build_dir/target-aarch64_cortex-a53_musl/ || true
+              echo "artifact restore done from $SRC"
+            else
+              echo "artifact restore: nothing usable"
+            fi
+            rm -rf .ktree-artifact
+          else
+            echo "no kernel-tree artifact found, will prepare from scratch"
+          fi
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
         with:
           path: build/istoreos/.ccache
-          key: ${{ runner.os }}-ccache-v1
+          key: ${{ runner.os }}-ccache-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-ccache-
 
+      # ---------------- build ----------------
+
       - name: Apply E87N patches
-        run: bash build/apply.sh
+        run: |
+          bash build/apply.sh
+          if [ "${{ inputs.build_module }}" = "true" ]; then
+            echo "==> [kernel-only] switching FB_TFT_NV3007 to =m"
+            sed -i 's/^CONFIG_FB_TFT_NV3007=y/CONFIG_FB_TFT_NV3007=m/' \
+              build/istoreos/target/linux/mediatek/filogic/config-6.6
+            sed -i 's/CONFIG_FB_TFT_NV3007=y/CONFIG_FB_TFT_NV3007=m/g' \
+              build/istoreos/include/kernel-defaults.mk
+            grep -n 'FB_TFT_NV3007' \
+              build/istoreos/target/linux/mediatek/filogic/config-6.6 || true
+          fi
 
       - name: Configure target
         run: |
@@ -65,41 +173,135 @@ jobs:
           make defconfig
           grep -q '^CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n=y' .config
 
-      - name: Prepare host tools
+      - name: Prepare kernel
         run: |
           cd build/istoreos
-          make tools/compile -j2 V=s
-          make target/linux/prepare V=s
+          make CCACHE=y -j4 V=s tools/compile 2>&1 | tail -40
+          # 内核树命中缓存时，.prepared 已存在，这一步基本空转。
+          # build_module 需要重新 syncconfig，因此删除配置戳。
+          if [ "${{ inputs.build_module }}" = "true" ]; then
+            rm -f build_dir/target-*/linux-mediatek_filogic/linux-*/.configured || true
+          fi
+          make CCACHE=y -j4 V=s target/linux/prepare 2>&1 | tail -60
 
-      - name: Compile kernel and image FIT
+      - name: Rewrite driver from patch
+        run: |
+          # 内核树可能来自缓存（里面的 fb_nv3007.c 是上一轮的）。
+          # 驱动的唯一事实来源是本仓库 999 补丁：每轮都重新解出来写回内核树。
+          # 这样改驱动既不会让 cache key 变化，也不会碰到 quilt / 补丁戳。
+          cd build/istoreos
+          LINUX_DIR=$(ls -d build_dir/target-*/linux-mediatek_filogic/linux-*/ | head -1)
+          echo "LINUX_DIR=$LINUX_DIR"
+          DST="$LINUX_DIR/drivers/staging/fbtft/fb_nv3007.c"
+          sed -n '/^+++ b\/drivers\/staging\/fbtft\/fb_nv3007.c/,/^diff --git/p'             target/linux/mediatek/patches-6.6/999-nv3007-fbtft.patch             | sed '1d' | grep '^+' | sed 's/^+//' > "$DST"
+          wc -l "$DST"
+          grep -n 'MADCTL\|set_addr_win\|0xA0' "$DST" | head -8
+
+      - name: Compile kernel
         run: |
           set -o pipefail
           cd build/istoreos
-          make CCACHE=y -j2 target/linux/compile V=s 2>&1 | tee /tmp/kernel-build.log
+          make CCACHE=y -j4 V=s target/linux/compile 2>&1 | tee /tmp/kernel-build.log | tail -80
 
-      - name: Upload kernel build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e87n-kernel-only-log
-          path: /tmp/kernel-build.log
-          retention-days: 7
+      - name: Build kernel FIT (no rootfs)
+        id: fit
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cd build/istoreos
+          # kernel_prepare -> Image/BuildKernel -> Build/fit(mkimage)。
+          # 只有 install 这个顶层 goal 会走到它；rootfs 是空目录，几十秒。
+          make CCACHE=y -j4 V=s target/linux/install 2>&1 | tee /tmp/kernel-fit.log | tail -60
 
-      - name: Verify kernel output
+      - name: Verify and collect outputs
         run: |
           cd build/istoreos
-          find build_dir bin -type f \( -name '*edgepi_e87n*kernel*.bin' -o -name '*.itb' \) -ls 2>/dev/null || true
-          test -n "$(find build_dir -type f -name '*edgepi_e87n*kernel*.bin' -o -name '*edgepi_e87n*.itb' | head -1)"
+          echo "=== candidate kernel FITs ==="
+          find build_dir bin -type f \( -name '*.itb' -o -name '*edgepi_e87n*kernel*' \) -printf '%s\t%p\n' 2>/dev/null | sort -rn | head -20
+          echo "=== Image / dtb ==="
+          find build_dir -type f \( -name 'Image' -o -name 'Image.lzma' -o -name 'image-mt7987a-edgepi-e87n.dtb' \) -printf '%s\t%p\n' 2>/dev/null | head -10
+          echo "=== module (if any) ==="
+          find build_dir -name 'fb_nv3007.ko' -printf '%s\t%p\n' 2>/dev/null | head -5
+          echo "=== config sanity ==="
+          grep -E '^CONFIG_FB_TFT(_NV3007)?=' build_dir/target-*/linux-mediatek_filogic/linux-*/.config 2>/dev/null || true
+          test -n "$(find build_dir -type f -name '*.itb' | head -1)"
+          if [ "${{ inputs.build_module }}" = "true" ]; then
+            test -n "$(find build_dir -name 'fb_nv3007.ko' | head -1)"
+          fi
 
-      - name: Upload kernel artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload kernel FIT + log
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: e87n-kernel-only
-          path: |
-            build/istoreos/build_dir/**/edgepi_e87n-kernel.bin
-            build/istoreos/build_dir/**/istoreos-mediatek-filogic-edgepi_e87n-initramfs-kernel.bin
-            build/istoreos/bin/targets/mediatek/filogic/*edgepi_e87n*.bin
-            /tmp/kernel-build.log
+          name: e87n-kernel-fit
+          retention-days: ${{ inputs.artifact_retention_days }}
           if-no-files-found: warn
-          retention-days: 7
+          path: |
+            build/istoreos/build_dir/**/*.itb
+            build/istoreos/build_dir/**/linux-*/arch/arm64/boot/Image
+            build/istoreos/build_dir/**/image-mt7987a-edgepi-e87n.dtb
+            /tmp/kernel-build.log
+            /tmp/kernel-fit.log
+
+      - name: Upload fb_nv3007.ko
+        if: always() && inputs.build_module
+        uses: actions/upload-artifact@v4
+        with:
+          name: e87n-fb_nv3007-ko
+          retention-days: ${{ inputs.artifact_retention_days }}
+          if-no-files-found: warn
+          path: build/istoreos/build_dir/**/drivers/staging/fbtft/fb_nv3007.ko
+
+      - name: Upload kernel tree artifact (long-lived cache backup)
+        if: always() && steps.ktree.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-tree
+          retention-days: ${{ inputs.artifact_retention_days }}
+          if-no-files-found: warn
+          compression-level: 1
+          path: build/istoreos/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic
+
+      # ---------------- save caches (after build, always) ----------------
+
+      - name: Trim ccache
+        if: always()
+        run: |
+          CCACHE_DIR="$GITHUB_WORKSPACE/build/istoreos/.ccache" \
+            ccache --max-size=1G --show-stats || true
+
+      - name: Save ccache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: build/istoreos/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.run_id }}
+
+      - name: Save kernel build tree cache
+        if: always() && steps.ktree.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: build/istoreos/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic
+          key: ${{ steps.key.outputs.kernel_tree }}
+
+      - name: Save host tools cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/istoreos/staging_dir/host
+            build/istoreos/build_dir/host
+          key: ${{ runner.os }}-hosttools-${{ hashFiles('build/e87n.config', 'build/apply.sh') }}
+
+      - name: Save toolchain cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/istoreos/staging_dir/toolchain-*
+            build/istoreos/build_dir/toolchain-*
+          key: ${{ runner.os }}-toolchain-${{ hashFiles('build/e87n.config') }}
