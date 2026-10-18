@@ -35,15 +35,6 @@ jobs:
           ./scripts/feeds install -a > /tmp/feeds-install.log 2>&1
           tail -5 /tmp/feeds-install.log
 
-      - name: Feeds presence of the suspect packages
-        run: |
-          cd build/istoreos
-          for p in luci-app-store luci-app-quickstart luci-lib-taskd taskd mount-utils \
-                   libuci-lua liblua lua curl script-utils coreutils coreutils-stty; do
-            echo "=== $p"
-            ./scripts/feeds search "$p" 2>/dev/null | head -4
-          done
-
       - name: Apply E87N + defconfig
         run: |
           cd build
@@ -54,9 +45,23 @@ jobs:
           echo "=== 关心的符号在最终 .config 里"
           for s in luci-app-store luci-app-quickstart luci-lib-taskd luci-lib-xterm taskd \
                    mount-utils libuci-lua liblua lua curl script-utils coreutils coreutils-stty; do
-            printf '%-24s %s\n' "$s" "$(grep -E "^CONFIG_PACKAGE_${s}=" .config || echo '-- 未设置 --')"
+            printf '%-24s %s\n' "$s" "$(grep -E "^CONFIG_PACKAGE_${s}=" .config || echo 'NOT SET')"
           done
-          echo "=== defconfig 里和 store/quickstart 有关的警告"
-          grep -iE "store|quickstart|taskd" /tmp/defconfig.log | head -10
           echo "=== 全部 luci-app 选中项"
           grep -E '^CONFIG_PACKAGE_luci-app-' .config | sort
+
+      - name: Why were store/quickstart dropped (search whole buildroot)
+        run: |
+          cd build/istoreos
+          for p in mount-utils liblua script-utils libuci-lua luci-lua-runtime; do
+            echo "=== who defines $p"
+            grep -rn "define Package/$p$" package feeds --include=Makefile 2>/dev/null | head -3
+            grep -rn "PROVIDES.*$p" package feeds --include=Makefile 2>/dev/null | head -2
+            grep -rn "PKG_NAME:=$p$" package feeds --include=Makefile 2>/dev/null | head -2
+          done
+          echo "=== store feed: luci-app-store 依赖行"
+          grep -E "DEPENDS" feeds/store/luci/luci-app-store/Makefile
+          echo "=== 展开后的 packageinfo: luci-app-store"
+          awk '/^Package: luci-app-store$/,/^$/' tmp/.packageinfo 2>/dev/null | head -20
+          echo "=== 展开后的 packageinfo: taskd"
+          awk '/^Package: taskd$/,/^$/' tmp/.packageinfo 2>/dev/null | head -14
