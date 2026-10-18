@@ -137,7 +137,9 @@ fbtft 仍在 `drivers/staging/fbtft`，新文件 hunk 可以照用；风险在
 | 内核 | `6.12.94 #0 SMP Thu Oct 15 11:31:25 2026` |
 | p4 FIT | `4,557,960` 字节，sha256 `55abe763…a539`，写入后回读一致 |
 | p3(FIP) | 全程未动，sha256 仍为 `ad1ff3c9…b60f` |
-| 自检 | `tools/acceptance.sh` → **41 passed / 0 failed** |
+| 自检 | `tools/acceptance.sh` → **41 passed / 0 failed**（首轮与收尾 RC 各一次） |
+| 收尾 RC | run `39119080351`，镜像 sha256 `ff66bba8…e255`，FIT `4,557,164` 字节 / `7a0e12e8…6310` |
+| dmesg | 无 `Call trace`、无 `duplicate filename`（清掉 p2 nvmem 嵌套后） |
 
 自检里和 6.12 相关的关键项：
 
