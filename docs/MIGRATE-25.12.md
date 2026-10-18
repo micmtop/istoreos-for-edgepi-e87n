@@ -122,3 +122,53 @@ fbtft 仍在 `drivers/staging/fbtft`，新文件 hunk 可以照用；风险在
   与“同步 iStoreOS 大版本”不是一回事。
 - 不要保留 24.10 的 733-* 系列补丁：25.12 已经上游化，硬塞会冲突。
 - 不要在 6.12 上继续沿用“整份 733-11 生成的 .c 上干跑 752”的老办法：上游文件结构变了。
+
+---
+
+## 6. 迁移结果（2026-10-18，实机验证）
+
+已完成。从 `e87n.config` 到 `files/` 原样搬到 `istoreos-25.12` 分支即可用，
+`apply.sh` 的“上游优先”逻辑在 6.12 上只补了 `320-hwrng` / `790-rtl8221-led` /
+`999-nv3007` 三个补丁，其余跳过。
+
+| 项 | 结果 |
+|---|---|
+| 版本 | `iStoreOS 25.12.5 r0-96c7500`（`DISTRIB_TARGET=mediatek/filogic`） |
+| 内核 | `6.12.94 #0 SMP Thu Oct 15 11:31:25 2026` |
+| p4 FIT | `4,557,960` 字节，sha256 `55abe763…a539`，写入后回读一致 |
+| p3(FIP) | 全程未动，sha256 仍为 `ad1ff3c9…b60f` |
+| 自检 | `tools/acceptance.sh` → **41 passed / 0 failed** |
+
+自检里和 6.12 相关的关键项：
+
+- **两个 2.5G PHY 都正常绑定**：`mdio-bus:03 RTL8221B-VB-CG 2.5Gbps (C45)`、
+  `mdio-bus:0f MediaTek MT7987 2.5GbE PHY`，没有 `Firmware loading failed`。
+- **HNAT / 卸载**：`nf_flow_table`、`nf_flow_table_inet`、`nft_flow_offload` 齐全，
+  `flow_offloading=1` / `flow_offloading_hw=1`，PPE 调试节点可见。
+- **两个 PCIe 控制器都已启用**（`pcie@11280000` + `pcie@11290000`，都是 `okay`），
+  空槽位各一条 `link down`，属正常。
+- **屏幕**：`fb_nv3007 frame buffer, 428x142, 118 KiB, fps=100, spi0.0 at 52 MHz`，
+  `e87n-display` 与自定义主题都能跑。
+- **LED**：`green:status`（pio4）/ `amber:wan`（pio3）按新语义注册。
+- **风扇**：`fan-control` 自动曲线，52–55 °C 时 PWM 10（3 %）。
+
+### 6.1 风险项结论
+
+| 风险 | 实测 |
+|---|---|
+| 2.5G PHY LED 回调空指针 panic | **未复现**，6.12 启动无 panic；753/754/755 都没装 |
+| PHY 固件初始化时序 | **正常**，固件加载无报错 |
+| LED 极性 | 正常（sys 灯亮、WAN 灯灭） |
+| 上游 `mt7987a.dtsi` 不完整 | 仍用我们自己的 dtsi（`apply.sh` 只在缺失时拷，25.12 那份太小不能用） |
+
+### 6.2 迁移后顺带修掉的问题
+
+- **`3e1aecb` 误删了板级 DTS 的 nv3007 屏节点和 `pwm_fan_pins`/`pwm_backlight_pins`**，
+  导致 `dtc` 报 `phandle_references ERROR` 并中断整机编译。已按 `48c2e21` 的已知good版本
+  重建 DTS，并新增 `tools/check-dts.sh` 在编译前 3 秒内校验标签引用与关键节点，
+  同时挂进 `build.yml` / `kernel-only.yml`。
+- **CI 的 `Verify firmware output` 写死了 `linux-6.6.144`**，6.12 产物会被误判 FATAL。
+  已改成 `linux-[0-9]*` 通配。
+- **eMMC factory 分区（p2）在本机是全 0**，`mmc-card/block-partition` 那套 nvmem 声明
+  没有数据可读，反而在 6.12 触发 `sysfs: cannot create duplicate filename .../mmcblk0p2/mmcblk0p2`
+  的 WARN。已从 DTS 移除该块（MAC 本来就走 OpenWrt 的随机分配）。

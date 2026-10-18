@@ -108,7 +108,7 @@ grep -qi "xhci" /proc/interrupts 2>/dev/null && ok "xhci 中断已注册" || inf
 
 # ---------------- PCIe / NVMe ----------------
 echo "== PCIe / NVMe =="
-# E87N 有两个 M.2 槽位：11280000 = M.2 2280，11290000 = M.2 2230
+# E87N 两个 M.2 2230 槽位各挂一个控制器：11280000 = pcie0，11290000 = pcie1
 n_ok=0
 for d in /proc/device-tree/soc/pcie@*; do
     [ -d "$d" ] || continue

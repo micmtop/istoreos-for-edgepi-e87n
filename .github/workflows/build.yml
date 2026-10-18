@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'iStoreOS 分支（默认 istoreos-24.10）'
+        description: 'iStoreOS 分支（默认 istoreos-25.12）'
         type: string
-        default: 'istoreos-24.10'
+        default: 'istoreos-25.12'
   push:
     branches: [main]
     # 纯文档改动不触发构建（构建仅由代码变更或手动触发）
@@ -48,11 +48,11 @@ jobs:
           echo "=== disk after deps ==="
           df -h
 
-      - name: Clone iStoreOS 24.10 source
+      - name: Clone iStoreOS source
         run: |
           cd build
           rm -rf istoreos
-          git clone -b ${{ inputs.branch || 'istoreos-24.10' }} --depth 1 https://github.com/istoreos/istoreos.git istoreos
+          git clone -b ${{ inputs.branch || 'istoreos-25.12' }} --depth 1 https://github.com/istoreos/istoreos.git istoreos
           cd istoreos
           # iStoreOS stock feeds.conf lists packages/luci/store/third/routing/telephony.
           # The network-wizard + homepage UI (luci-app-quickstart / quickstart) live in

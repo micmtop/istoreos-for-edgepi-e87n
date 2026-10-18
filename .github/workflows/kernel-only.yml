@@ -63,11 +63,11 @@ jobs:
             python3-distutils python3-setuptools rsync unzip zlib1g-dev \
             file wget libelf-dev jq ccache
 
-      - name: Clone iStoreOS 24.10 source
+      - name: Clone iStoreOS source
         run: |
           cd build
           # 不跑 feeds：内核构建不需要任何 feed 包，省 3-5 min。
-          git clone -b istoreos-24.10 --depth 1 \
+          git clone -b istoreos-25.12 --depth 1 \
             https://github.com/istoreos/istoreos.git istoreos
 
       - name: Compute cache keys

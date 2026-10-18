@@ -38,10 +38,10 @@ jobs:
             python3-distutils python3-setuptools rsync unzip zlib1g-dev \
             file wget libelf-dev jq
 
-      - name: Clone iStoreOS 24.10 source
+      - name: Clone iStoreOS source
         run: |
           cd build
-          git clone -b istoreos-24.10 --depth 1 \
+          git clone -b istoreos-25.12 --depth 1 \
             https://github.com/istoreos/istoreos.git istoreos
 
       - name: Restore toolchain cache
