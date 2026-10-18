@@ -114,6 +114,11 @@ jobs:
       - name: Apply E87N + MT7987 support
         run: bash build/apply.sh
 
+      - name: Validate board DTS (fail fast)
+        # 板级 DTS 的 &label 引用/关键节点在 3 秒内查完，避免像 3e1aecb
+        # 那样把 nv3007 屏和 pwm pinctrl 删掉后白跑 40 分钟才在 dtc 报错。
+        run: sh build/tools/check-dts.sh build/files/target/linux/mediatek/dts
+
       - name: Configure target (EdgePi E87N)
         run: |
           cd build/istoreos
