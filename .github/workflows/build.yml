@@ -205,7 +205,8 @@ jobs:
             exit 1
           fi
           echo "=== kernel .config FB symbols (ground truth) ==="
-          KCFG=$(ls build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/.config 2>/dev/null | head -1)
+          KCFG=$(ls build_dir/target-*/linux-mediatek_filogic/linux-[0-9]*/.config 2>/dev/null | head -1)
+          echo "=== kernel tree: $(basename $(dirname "$KCFG" 2>/dev/null)) ==="
           if [ -n "$KCFG" ]; then
             grep -E '^CONFIG_(STAGING|FB|FB_DEVICE|FB_TFT|FB_TFT_NV3007|SPI|GPIOLIB)=' "$KCFG" || true
             echo "=== hard gate: NV3007 must be enabled and compiled ==="
@@ -216,7 +217,7 @@ jobs:
               echo "FATAL: CONFIG_FB_TFT_NV3007 != y in kernel .config (current: '$NVCFG')"
               exit 1
             fi
-            if ls build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/drivers/staging/fbtft/fb_nv3007.o >/dev/null 2>&1; then
+            if ls build_dir/target-*/linux-mediatek_filogic/linux-[0-9]*/drivers/staging/fbtft/fb_nv3007.o >/dev/null 2>&1; then
               echo "fb_nv3007.o COMPILED (built-in)"
             else
               echo "FATAL: fb_nv3007.o not found - screen driver NOT built"
@@ -251,6 +252,6 @@ jobs:
             /tmp/kernel-prepare.log
             build/istoreos/logs/
             build/istoreos/build_dir/target-*/linux-*/quilt.log
-            build/istoreos/build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/.config
-            build/istoreos/build_dir/target-*/linux-mediatek_filogic/linux-6.6.144/.config.set
+            build/istoreos/build_dir/target-*/linux-mediatek_filogic/linux-[0-9]*/.config
+            build/istoreos/build_dir/target-*/linux-mediatek_filogic/linux-[0-9]*/.config.set
           retention-days: 7
