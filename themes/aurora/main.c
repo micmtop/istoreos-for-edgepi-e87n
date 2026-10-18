@@ -271,10 +271,10 @@ static void build_ui(void)
     rect(scr, 152, 6, 24, 2, C_AMBER);
 
     /* ---- 右：上下行 ---- */
-    lbl_down = label(scr, 266, 2, &lv_font_montserrat_14, C_TEAL, "↓ --");
+    lbl_down = label(scr, 266, 2, &lv_font_montserrat_14, C_TEAL, "DN --");
     bar_down = seg_bar(scr, 266, 22, 152, 6, 10, C_TEAL);
 
-    lbl_up = label(scr, 266, 34, &lv_font_montserrat_14, C_AMBER, "↑ --");
+    lbl_up = label(scr, 266, 34, &lv_font_montserrat_14, C_AMBER, "UP --");
     bar_up = seg_bar(scr, 266, 54, 152, 6, 10, C_AMBER);
 
     lbl_clients = label(scr, 266, 64, &lv_font_montserrat_12, C_MUTED, "在线 --");
@@ -368,9 +368,9 @@ static void tick_cb(lv_timer_t *t)
         lv_bar_set_value(bar_up, up, LV_ANIM_ON);
     }
     fmt_rate(buf, sizeof(buf), m.rx_bps);
-    lv_label_set_text_fmt(lbl_down, "↓ %s", buf);
+    lv_label_set_text_fmt(lbl_down, "DN %s", buf);
     fmt_rate(buf, sizeof(buf), m.tx_bps);
-    lv_label_set_text_fmt(lbl_up, "↑ %s", buf);
+    lv_label_set_text_fmt(lbl_up, "UP %s", buf);
 
     /* 在线数 */
     if (m.clients != last_clients) {
