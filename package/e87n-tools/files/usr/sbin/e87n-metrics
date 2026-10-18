@@ -68,6 +68,14 @@ wan6() {
 
 esc() { printf '%s' "$1" | sed 's/[\\"]/ /g'; }
 
+client_count() {
+    # 在线设备：DHCP 租约 + ARP 邻居，按 MAC 去重
+    {
+        awk '{print $2}' /tmp/dhcp.leases 2>/dev/null
+        ip neigh show dev br-lan 2>/dev/null | awk '/lladdr/{print $5}'
+    } | sed '/^$/d' | sort -u | wc -l
+}
+
 emit() {
     mkdir -p "$STATE"
 
@@ -135,7 +143,15 @@ emit() {
     printf '"rx_bps":%s,"tx_bps":%s,"net_iface":"%s",' "$rx_bps" "$tx_bps" "$(esc "$IFACE")"
     printf '"wan_ip":"%s","wan6":"%s","lan_ip":"%s","lan6":"%s",' \
         "$(esc "$wan_ip")" "$(esc "$wan_ip6")" "$(esc "$lan_ip")" "$(esc "$lan_ip6")"
-    printf '"backlight":"%s","display_page":"%s"}\n' "$(esc "$bl")" "$(esc "$page")"
+    clients=$(client_count 2>/dev/null); [ -n "$clients" ] || clients=0
+    saying=""
+    if [ -r "$STATE/saying.json" ]; then
+        saying=$(sed -n 's/.*"text"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$STATE/saying.json" | head -1)
+    fi
+    [ -n "$saying" ] || saying="--"
+
+    printf '"backlight":"%s","display_page":"%s",' "$(esc "$bl")" "$(esc "$page")"
+    printf '"clients":%s,"saying":"%s"}\n' "$clients" "$(esc "$saying")"
 }
 
 case "$1" in

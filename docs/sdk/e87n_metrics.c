@@ -108,6 +108,7 @@ int e87n_metrics_read(e87n_metrics_t *out)
     out->fan_pwm   = (int)jnum(json, "fan_pwm", -1);
     out->fan_pct   = (int)jnum(json, "fan_pct", -1);
     out->rx_bps    = (unsigned long)jnum(json, "rx_bps", 0);
+    out->clients   = (int)jnum(json, "clients", -1);
     out->tx_bps    = (unsigned long)jnum(json, "tx_bps", 0);
 
     jstr(json, "fan_mode",     out->fan_mode,     sizeof(out->fan_mode));
@@ -118,6 +119,7 @@ int e87n_metrics_read(e87n_metrics_t *out)
     jstr(json, "lan6",         out->lan6,         sizeof(out->lan6));
     jstr(json, "backlight",    out->backlight,    sizeof(out->backlight));
     jstr(json, "display_page", out->display_page, sizeof(out->display_page));
+    jstr(json, "saying",       out->saying,       sizeof(out->saying));
 
     return 0;
 }

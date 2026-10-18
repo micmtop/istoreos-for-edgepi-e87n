@@ -56,6 +56,12 @@ define Package/e87n-tools/install
 		./files/usr/sbin/e87n-theme \
 		$(1)/usr/sbin/e87n-theme
 	$(INSTALL_BIN) \
+		./files/usr/sbin/e87n-saying \
+		$(1)/usr/sbin/e87n-saying
+	$(INSTALL_BIN) \
+		./files/etc/init.d/e87n-saying \
+		$(1)/etc/init.d/e87n-saying
+	$(INSTALL_BIN) \
 		./files/usr/libexec/rpcd/e87n \
 		$(1)/usr/libexec/rpcd/e87n
 	$(INSTALL_BIN) \

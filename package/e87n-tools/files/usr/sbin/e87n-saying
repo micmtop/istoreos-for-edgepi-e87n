@@ -1,0 +1,117 @@
+#!/bin/sh
+# e87n-saying - 每日一言（uapis.cn）取回并缓存
+#
+#   GET https://uapis.cn/api/v1/saying  ->  {"text":"..."}
+#
+# 缓存: /var/run/e87n/saying.json  {"text":"...","ts":<epoch>,"src":"api|fallback"}
+# 无外网 / 请求失败: 保留上一次成功的值；从未成功过则用内置兜底句子。
+#
+# 用法:
+#   e87n-saying once     取一次并写缓存（失败则兜底）
+#   e87n-saying show     打印缓存（没有就取一次）
+#   e87n-saying watch    守护：有网 60min 一次，失败 5min 后重试
+
+STATE=/var/run/e87n
+JSON=$STATE/saying.json
+API=https://uapis.cn/api/v1/saying
+UA="e87n-display/1"
+
+FALLBACK="
+路虽远行则将至，事虽难做则必成。
+不驰于空想，不骛于虚声。
+心有山海，静而无边。
+慢慢来，比较快。
+把每一件小事做好，就是不平凡。
+与其临渊羡鱼，不如退而结网。
+星光不问赶路人，时光不负有心人。
+所有的热爱，都要全力以赴。
+生活明朗，万物可爱。
+日拱一卒，功不唐捐。
+"
+
+jesc() { printf '%s' "$1" | sed 's/[\\"]/ /g'; }
+
+pick_fallback() {
+    n=$(printf '%s\n' "$FALLBACK" | grep -c '[^[:space:]]')
+    [ "$n" -gt 0 ] || { printf '%s' "今天也要加油"; return; }
+    # 用 epoch 做伪随机，避免依赖 /dev/urandom
+    i=$(( $(date +%s) % n + 1 ))
+    printf '%s\n' "$FALLBACK" | grep '[^[:space:]]' | sed -n "${i}p"
+}
+
+extract_text() {
+    # 从 {"text":"..."} 里取 text；只处理我们关心的扁平结构
+    sed -n 's/.*"text"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
+
+http_get() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsS --max-time 8 -A "$UA" "$API" 2>/dev/null && return 0
+    fi
+    if command -v uclient-fetch >/dev/null 2>&1; then
+        uclient-fetch -q -O - --timeout=8 "$API" 2>/dev/null && return 0
+    fi
+    wget -qO- --timeout=8 "$API" 2>/dev/null && return 0
+    return 1
+}
+
+write_cache() {
+    printf '{"text":"%s","ts":%s,"src":"%s"}\n' "$(jesc "$1")" "$(date +%s)" "$2" \
+        > "$JSON.tmp" 2>/dev/null && mv "$JSON.tmp" "$JSON" 2>/dev/null
+}
+
+cached_text() {
+    [ -r "$JSON" ] && sed -n 's/.*"text"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$JSON" | head -1
+}
+
+cmd_once() {
+    mkdir -p "$STATE"
+    t=$(http_get | extract_text)
+    if [ -n "$t" ]; then
+        write_cache "$t" api
+        printf '%s\n' "$t"
+        return 0
+    fi
+    # 失败：有旧值就保留（只更新 ts 之外什么都不动），否则写兜底
+    old=$(cached_text)
+    if [ -n "$old" ]; then
+        printf '%s\n' "$old"
+        return 0
+    fi
+    f=$(pick_fallback)
+    write_cache "$f" fallback
+    printf '%s\n' "$f"
+    return 0
+}
+
+cmd_show() {
+    t=$(cached_text)
+    [ -n "$t" ] && { printf '%s\n' "$t"; return 0; }
+    cmd_once
+}
+
+cmd_watch() {
+    mkdir -p "$STATE"
+    trap 'exit 0' INT TERM
+    while :; do
+        t=$(http_get | extract_text)
+        if [ -n "$t" ]; then
+            write_cache "$t" api
+            sleep 3600
+        else
+            # 没有外网：确保有兜底值可显示，然后较快重试
+            [ -n "$(cached_text)" ] || write_cache "$(pick_fallback)" fallback
+            sleep 300
+        fi
+    done
+}
+
+case "$1" in
+    once)  cmd_once ;;
+    show)  cmd_show ;;
+    watch) cmd_watch ;;
+    *)
+        echo "Usage: $0 once|show|watch" >&2
+        exit 1
+        ;;
+esac

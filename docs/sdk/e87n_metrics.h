@@ -45,6 +45,8 @@ typedef struct e87n_metrics {
     char         lan6[64];
     char         backlight[8];       /* on / off / unknown                  */
     char         display_page[16];   /* 当前页面 1-4 / cycle                */
+    int          clients;            /* 在线设备数（DHCP 租约 + ARP 去重）  */
+    char         saying[128];        /* 每日一言（UTF-8，可能为空）         */
 } e87n_metrics_t;
 
 #ifdef __cplusplus

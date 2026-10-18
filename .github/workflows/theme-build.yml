@@ -1,0 +1,135 @@
+name: E87N Theme Build
+
+# 交叉编译 themes/<name>/ 成可导入的 theme.tar.gz（LuCI 屏幕控制 → 主题 → 导入）
+# 只编 LVGL 应用，不碰内核/rootfs；复用 kernel-only 的 toolchain 缓存。
+# 首次（缓存空）~20 min，之后 ~4-6 min。
+
+on:
+  workflow_dispatch:
+    inputs:
+      theme:
+        description: 'themes/ 下的目录名'
+        type: string
+        default: 'aurora'
+      artifact_retention_days:
+        description: '产物保留天数'
+        type: number
+        default: 30
+
+concurrency:
+  group: theme-build-${{ github.ref }}-${{ inputs.theme }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+        with:
+          path: build
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-distutils python3-setuptools rsync unzip zlib1g-dev \
+            file wget libelf-dev jq
+
+      - name: Clone iStoreOS 24.10 source
+        run: |
+          cd build
+          git clone -b istoreos-24.10 --depth 1 \
+            https://github.com/istoreos/istoreos.git istoreos
+
+      - name: Restore toolchain cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/istoreos/staging_dir/toolchain-*
+            build/istoreos/build_dir/toolchain-*
+          key: ${{ runner.os }}-toolchain-${{ hashFiles('build/e87n.config') }}
+          restore-keys: ${{ runner.os }}-toolchain-
+
+      - name: Restore host tools cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/istoreos/staging_dir/host
+            build/istoreos/build_dir/host
+          key: ${{ runner.os }}-hosttools-${{ hashFiles('build/e87n.config', 'build/apply.sh') }}
+          restore-keys: ${{ runner.os }}-hosttools-
+
+      - name: Apply E87N patches and configure target
+        run: |
+          bash build/apply.sh
+          cd build/istoreos
+          cp ../e87n.config .config
+          make defconfig >/dev/null
+          grep -q '^CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n=y' .config
+
+      - name: Build cross toolchain
+        run: |
+          set -o pipefail
+          cd build/istoreos
+          make -j4 V=s tools/compile 2>&1 | tail -20
+          make -j4 V=s toolchain/compile 2>&1 | tail -20
+          ls -d staging_dir/toolchain-*/bin/aarch64-openwrt-linux-musl-gcc
+
+      - name: Build theme
+        run: |
+          set -o pipefail
+          THEME="${{ inputs.theme }}"
+          SRC="$PWD/build/themes/$THEME"
+          test -f "$SRC/main.c" || { echo "no such theme: $THEME"; ls build/themes; exit 1; }
+          GCC=$(ls -d "$PWD"/build/istoreos/staging_dir/toolchain-*/bin/aarch64-openwrt-linux-musl-gcc | head -1)
+          SYSROOT=$(dirname "$(dirname "$GCC")")
+          echo "compiler: $GCC"
+          cmake -S "$SRC" -B /tmp/theme-build \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER="$GCC" \
+            -DCMAKE_FIND_ROOT_PATH="$SYSROOT" \
+            -DCMAKE_C_FLAGS="-O2" 2>&1 | tail -20
+          cmake --build /tmp/theme-build -j4 2>&1 | tail -40
+          file /tmp/theme-build/app
+          ls -l /tmp/theme-build/app
+
+      - name: Package theme
+        run: |
+          THEME="${{ inputs.theme }}"
+          SRC="$PWD/build/themes/$THEME"
+          cd /tmp/theme-build
+          tar -czf "$PWD/theme-$THEME.tar.gz" -C "$SRC" theme.json -C /tmp/theme-build app
+          ls -l "$PWD/theme-$THEME.tar.gz"
+          tar -tzf "$PWD/theme-$THEME.tar.gz"
+
+      - name: Upload theme package
+        uses: actions/upload-artifact@v4
+        with:
+          name: e87n-theme-${{ inputs.theme }}
+          retention-days: ${{ inputs.artifact_retention_days }}
+          if-no-files-found: error
+          path: /tmp/theme-build/theme-${{ inputs.theme }}.tar.gz
+
+      - name: Save toolchain cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/istoreos/staging_dir/toolchain-*
+            build/istoreos/build_dir/toolchain-*
+          key: ${{ runner.os }}-toolchain-${{ hashFiles('build/e87n.config') }}
+
+      - name: Save host tools cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/istoreos/staging_dir/host
+            build/istoreos/build_dir/host
+          key: ${{ runner.os }}-hosttools-${{ hashFiles('build/e87n.config', 'build/apply.sh') }}
