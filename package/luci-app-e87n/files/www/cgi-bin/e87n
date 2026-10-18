@@ -31,8 +31,14 @@ done
 read_int() { cat "$1" 2>/dev/null | tr -d '\n'; }
 
 # 从 QUERY_STRING 提取参数（兼容开头的无 ? 形式）
+urldecode() {
+    # %XX -> \xXX 再交给 printf %b（busybox 支持 \xHH）；+ -> 空格
+    printf '%b' "$(printf '%s' "$1" | sed 's/+/ /g; s/%/\\x/g')"
+}
+
 qparam() {
-    echo "$QUERY_STRING" | sed 's/&/\n/g' | sed -n "s/^$1=\(.*\)$/\1/p" | head -1
+    v=$(echo "$QUERY_STRING" | sed 's/&/\n/g' | sed -n "s/^$1=\(.*\)$/\1/p" | head -1)
+    urldecode "$v"
 }
 
 ACTION=$(qparam action)
@@ -185,9 +191,9 @@ case "$ACTION" in
         esac
         uci -q delete e87n-display.global.custom_text 2>/dev/null
         if [ -n "$TX" ]; then
-            for t in $(echo "$QUERY_STRING" | sed 's/&/ /g'); do
-                case "$t" in
-                    text=*) uci -q add_list e87n-display.global.custom_text="${t#text=}" ;;
+            echo "$QUERY_STRING" | sed 's/&/\n/g' | while IFS= read -r kv; do
+                case "$kv" in
+                    text=*) uci -q add_list e87n-display.global.custom_text="$(urldecode "${kv#text=}")" ;;
                 esac
             done
         fi
