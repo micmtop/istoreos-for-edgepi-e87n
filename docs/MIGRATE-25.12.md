@@ -160,7 +160,7 @@ fbtft 仍在 `drivers/staging/fbtft`，新文件 hunk 可以照用；风险在
 |---|---|
 | 2.5G PHY LED 回调空指针 panic | **未复现**，6.12 启动无 panic；753/754/755 都没装 |
 | PHY 固件初始化时序 | **正常**，固件加载无报错 |
-| LED 极性 | 正常（sys 灯亮、WAN 灯灭） |
+| LED 极性 | **踩到了**：软件 GPIO 灯（`green:status` / `amber:wan`）正常，但网口座子里的 PHY 灯反向——没插线就亮。原因见 §6.3，已用 `795` 补丁修掉 |
 | 上游 `mt7987a.dtsi` 不完整 | 仍用我们自己的 dtsi（`apply.sh` 只在缺失时拷，25.12 那份太小不能用） |
 
 ### 6.2 迁移后顺带修掉的问题
@@ -174,3 +174,24 @@ fbtft 仍在 `drivers/staging/fbtft`，新文件 hunk 可以照用；风险在
 - **eMMC factory 分区（p2）在本机是全 0**，`mmc-card/block-partition` 那套 nvmem 声明
   没有数据可读，反而在 6.12 触发 `sysfs: cannot create duplicate filename .../mmcblk0p2/mmcblk0p2`
   的 WARN。已从 DTS 移除该块（MAC 本来就走 OpenWrt 的随机分配）。
+
+### 6.3 网口灯「没插线也亮」的原因（已修）
+
+网口指示灯**不是**我们软件控制的 GPIO LED，而是 PHY 自己的 LED 引脚：
+
+- eth1/WAN = MT7987 内置 2.5G PHY，LED0 引脚经 pinctrl（`i2p5gbe-led` / `&i2p5gbe_led0_pins`）引到板子上；
+- 驱动 `mtk-2p5ge` 的 `mt798x_2p5ge_phy_config_init()` 里会给 LED0 写
+  `MTK_PHY_LED_ON_POLARITY | LINK10 | LINK100 | LINK1000 | LINK2500`；
+- 这个 `POLARITY` 位把「亮」的电平翻过来。E87N 的 LED 接法要求**清掉**它，
+  6.6 时代我们就是靠 `754-...-fix-mt7987-led-polarity.patch` 清掉的；
+- 迁到 6.12 时 `apply.sh` 把 753/754/755 当作「6.6 专用 PHY 修复」跳过，
+  而 6.12 的 `drivers/net/phy/mediatek/mtk-2p5ge.c` 是上游 `701` 补丁新建的、
+  这段代码一模一样 → `POLARITY` 位又回来了 → **没插线时被驱动成亮，插上线反而灭**。
+
+修复：新增 `files/target/linux/mediatek/patches-6.12/795-net-phy-mediatek-i2p5g-fix-mt7987-led-polarity.patch`
+（内容同 754，hunk 行号改成 6.12 的 `@@ -141,8 +141,8 @@`），
+`apply.sh` 增加「按内核版本目录补丁」的安装逻辑（`[2.2/4]` 段），CI 日志会打印
+`add 795-... (6.12-specific)`。
+
+> 教训：`dmesg`/`/sys/class/leds` 只能看到软件 LED，网口灯由 PHY 驱动，
+> 软件侧读不到状态，必须看实物。上一版文档写「LED 极性正常」是**错的**。
