@@ -122,13 +122,25 @@ return view.extend({
         dispCard.appendChild(txRow);
 
         var dispBtn = el('button', '应用', { class: 'btn cbi-button-apply' });
+        var dispMsg = el('span', '', { class: 'cbi-value-description', style: 'margin-left:1em' });
         dispBtn.addEventListener('click', function () {
             var q = 'action=set_display&page=' + encodeURIComponent(pgSel.value) +
                     '&cycle=' + encodeURIComponent(cyInput.value || '10');
             if (txInput.value) { q += '&text=' + encodeURIComponent(txInput.value); }
-            that.call(q).then(function () { refresh(); loadPreview(); });
+            dispMsg.textContent = '应用中…';
+            that.call(q).then(function (r) {
+                if (r && r.ok) {
+                    dispMsg.textContent = '已应用：' + pgSel.value;
+                } else {
+                    dispMsg.textContent = '应用失败：' + ((r && r.err) || '未知错误');
+                }
+                refresh(); loadPreview();
+            }).catch(function (e) {
+                dispMsg.textContent = '应用失败：' + e.message;
+            });
         });
         dispCard.appendChild(dispBtn);
+        dispCard.appendChild(dispMsg);
         root.appendChild(dispCard);
 
         /* ---------- 主题管理 ---------- */
@@ -182,8 +194,23 @@ return view.extend({
                     f.appendChild(el('code', t.id, { style: 'margin-right:1em' }));
                     var useBtn = el('button', '使用', { class: 'btn cbi-button-apply' });
                     useBtn.addEventListener('click', function () {
-                        pgSel.value = 'theme:' + t.id;
-                        dispBtn.click();
+                        /* 直接调 CGI，不依赖下拉里是否已经有这个 option（避免前端缓存导致点了没反应） */
+                        var q = 'action=set_display&page=' + encodeURIComponent('theme:' + t.id) +
+                                '&cycle=' + encodeURIComponent(cyInput.value || '10');
+                        useBtn.disabled = true;
+                        that.call(q).then(function (r) {
+                            if (r && r.ok) {
+                                thMsg.textContent = '已切换到主题：' + t.name;
+                                pgSel.value = 'theme:' + t.id;
+                            } else {
+                                thMsg.textContent = '切换失败：' + ((r && r.err) || '未知错误');
+                            }
+                            useBtn.disabled = false;
+                            refresh(); loadPreview();
+                        }).catch(function (e) {
+                            thMsg.textContent = '切换失败：' + e.message;
+                            useBtn.disabled = false;
+                        });
                     });
                     var delBtn = el('button', '删除', { class: 'btn cbi-button-remove' });
                     delBtn.addEventListener('click', function () {

@@ -100,7 +100,7 @@ cmd_install() {
         fi
     fi
     if [ ! -f "$SRC/app" ] && [ ! -f "$SRC/frame.raw" ]; then
-        rm -rf "$TMP"; printf '{"ok":0,"err":"theme needs app (ELF) or frame.raw"}\n'; return 1
+        rm -rf "$TMP"; printf '{"ok":0,"err":"theme needs app (ELF) or frame.raw (打包时把 frame.raw 一起放进 tar.gz；可用 docs/sdk/example-theme/build.sh 生成)"}\n'; return 1
     fi
 
     # ---- id ----
