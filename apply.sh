@@ -8,15 +8,25 @@ SRC="$ROOT/istoreos"
 MT="$SRC/target/linux/mediatek"
 
 [ -d "$MT" ] || { echo "ERROR: $MT not found. Clone istoreos-24.10 into $SRC first."; exit 1; }
+# 目标内核版本（24.10=6.6，25.12=6.12）；补丁目录与配置文件名都跟着它走
+KPVER=$(sed -n 's/^KERNEL_PATCHVER:=//p' "$MT/Makefile" 2>/dev/null | tr -d ' ' | head -1)
+KPVER=${KPVER:-6.6}
+echo "==> kernel patch version: $KPVER"
 
-echo "==> [1/4] Copy MT7987 SoC dtsi + E87N dts"
-cp -f "$ROOT/files/target/linux/mediatek/dts/mt7987.dtsi"           "$MT/dts/"
-cp -f "$ROOT/files/target/linux/mediatek/dts/mt7987a.dtsi"          "$MT/dts/"
-cp -f "$ROOT/files/target/linux/mediatek/dts/mt7987b.dtsi"          "$MT/dts/"
+echo "==> [1/4] Install MT7987 SoC dtsi (upstream first) + E87N dts"
+mkdir -p "$MT/dts"
+for F in mt7987.dtsi mt7987a.dtsi mt7987b.dtsi; do
+    if [ -f "$MT/dts/$F" ]; then
+        echo "    keep upstream $F ($(wc -c < "$MT/dts/$F") bytes)"
+    else
+        cp -f "$ROOT/files/target/linux/mediatek/dts/$F" "$MT/dts/"
+        echo "    add  $F (upstream missing)"
+    fi
+done
 cp -f "$ROOT/files/target/linux/mediatek/dts/mt7987a-edgepi-e87n.dts" "$MT/dts/"
 
-echo "==> [2/4] Copy MT7987 kernel patches into patches-6.6"
-mkdir -p "$MT/patches-6.6"
+echo "==> [2/4] Install MT7987 kernel patches into patches-$KPVER"
+mkdir -p "$MT/patches-$KPVER"
 # 752 (mt7987 built-in 2.5G PHY driver) is INCLUDED again.  It was previously
 # excluded because mt798x_2p5ge_phy_probe() panicked (pc=0x0 in
 # mtk_phy_leds_state_init) when probing phy@15: mtk_phy_leds_state_init()
@@ -25,7 +35,26 @@ mkdir -p "$MT/patches-6.6"
 # patch now fills the same LED callbacks as the MT7988 entry, so the built-in
 # 2.5G PHY (gmac1/eth1 = WAN) probes and loads its firmware instead of falling
 # back to the generic C45 driver (which reports a phantom 2.5G link).
-cp -f "$ROOT"/files/target/linux/mediatek/patches-6.6/*.patch "$MT/patches-6.6/"
+# 25.12（内核 6.12）已经把 MT7987 的 eth / 2.5G PHY / pinctrl / clk / thermal /
+# cpufreq / pwm / PCS 全部上游化（同号补丁 360/361/740/750/751/752/821/831/844）。
+# 上游有的就不再塞一份，否则 quilt 会因同号/上下文冲突失败。
+# 753/754/755 是我们在 6.6 上对 2.5G PHY 的运行时修复，依赖 6.6 版驱动内容，
+# 6.12 上先不装（需要时再按 6.12 的源重新生成）。
+for P in "$ROOT"/files/target/linux/mediatek/patches-6.6/*.patch; do
+    BASE=$(basename "$P")
+    NUM=${BASE%%-*}
+    if [ "$KPVER" != "6.6" ]; then
+        case "$NUM" in
+            753|754|755) echo "    skip $BASE (6.6-specific PHY fix)"; continue ;;
+        esac
+    fi
+    if ls "$MT/patches-$KPVER/$NUM"-*.patch >/dev/null 2>&1; then
+        echo "    skip $BASE (upstream already has $NUM-*)"
+        continue
+    fi
+    cp -f "$P" "$MT/patches-$KPVER/"
+    echo "    add  $BASE"
+done
 
 echo "==> [2.4/4] Fix mtk_eth_soc pextp PHY get (devm_of_phy_get -> optional_get)"
 # E87N net PHY (Airoha EN8811H on mdio-bus) is not described as a `phys`
@@ -36,7 +65,7 @@ echo "==> [2.4/4] Fix mtk_eth_soc pextp PHY get (devm_of_phy_get -> optional_get
 # stock istoreos 6.6 kernel patch the same way.  (pending-6.6 is applied by
 # OpenWrt's kernel build, so patching the .patch here is what survives the CI
 # re-clone.)
-for P737 in "$SRC"/target/linux/generic/pending-6.6/737-net-ethernet-mtk_eth_soc-add-paths-and-SerDes-modes-.patch; do
+for P737 in "$SRC"/target/linux/generic/pending-$KPVER/737-net-ethernet-mtk_eth_soc-add-paths-and-SerDes-modes-.patch; do
   if [ -f "$P737" ]; then
     python3 - "$P737" <<'PYEOF'
 import sys
@@ -263,7 +292,7 @@ print("E87N network block inserted")
 PYEOF
 
 echo "==> [5/5] Set new MT7987 kernel symbols so kconfig does not prompt"
-FCFG="$MT/filogic/config-6.6"
+FCFG="$MT/filogic/config-$KPVER"
 mkdir -p "$(dirname "$FCFG")"
 # These symbols are added by our MT7987 patches and are NOT in the stock
 # filogic config fragment, so OpenWrt's kernel syncconfig would ask for them
