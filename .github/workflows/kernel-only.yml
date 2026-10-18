@@ -234,7 +234,8 @@ jobs:
           find build_dir -name 'fb_nv3007.ko' -printf '%s\t%p\n' 2>/dev/null | head -5
           echo "=== config sanity ==="
           grep -E '^CONFIG_FB_TFT(_NV3007)?=' build_dir/target-*/linux-mediatek_filogic/linux-*/.config 2>/dev/null || true
-          test -n "$(find build_dir -type f -name '*.itb' | head -1)"
+          # 内核 FIT 在 mediatek 上是 edgepi_e87n-kernel.bin（不叫 *.itb），两种都认
+          test -n "$(find build_dir -type f \( -name '*.itb' -o -name '*edgepi_e87n-kernel.bin' \) | head -1)"
           if [ "${{ inputs.build_module }}" = "true" ]; then
             test -n "$(find build_dir -name 'fb_nv3007.ko' | head -1)"
           fi
@@ -248,6 +249,7 @@ jobs:
           if-no-files-found: warn
           path: |
             build/istoreos/build_dir/**/*.itb
+            build/istoreos/build_dir/**/*edgepi_e87n-kernel.bin
             build/istoreos/build_dir/**/linux-*/arch/arm64/boot/Image
             build/istoreos/build_dir/**/image-mt7987a-edgepi-e87n.dtb
             /tmp/kernel-build.log
