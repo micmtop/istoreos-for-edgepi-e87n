@@ -1,0 +1,175 @@
+#!/bin/sh
+# e87n-theme - E87N 主题包管理（LuCI 导入 / 显示页面列表）
+#
+# 主题包 = tar.gz，解包后至少含 theme.json：
+#   theme.json    {"name":"我的主题","desc":"说明"}          必需
+#   app           aarch64 ELF（type=app，自带 LVGL，读 /var/run/e87n/metrics.json）
+#   frame.raw     428x142 RGB565 整帧 121552 字节（type=image，静态画面）
+#   preview.raw   可选，同尺寸缩略图（暂未使用）
+#
+# 用法:
+#   e87n-theme list                    列出已装主题（JSON）
+#   e87n-theme install <tar.gz> [id]   安装（id 缺省取包名，非法字符会被替换）
+#   e87n-theme remove <id>             卸载
+#   e87n-theme run <id>                前台运行该主题（供 init.d 调用，exec）
+#   e87n-theme info <id>               单个主题信息
+#
+# type 判定：有 app -> app；否则有 frame.raw -> image；都没有 -> invalid
+
+THEMES=/etc/e87n-display/themes
+
+jesc() { printf '%s' "$1" | sed 's/[\\"]/ /g'; }
+
+sanitize() {
+    printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_' | cut -c1-40
+}
+
+name_of() {
+    n=$(sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/theme.json" 2>/dev/null | head -1)
+    [ -n "$n" ] || n=$(basename "$1")
+    printf '%s' "$n"
+}
+
+type_of() {
+    if [ -x "$1/app" ] || [ -f "$1/app" ]; then echo app
+    elif [ -f "$1/frame.raw" ]; then echo image
+    else echo invalid
+    fi
+}
+
+obj() {
+    printf '{"id":"%s","name":"%s","type":"%s"}' \
+        "$(jesc "$1")" "$(jesc "$(name_of "$THEMES/$1")")" "$(type_of "$THEMES/$1")"
+}
+
+cmd_list() {
+    mkdir -p "$THEMES"
+    printf '{"ok":1,"themes":['
+    first=1
+    for d in "$THEMES"/*; do
+        [ -d "$d" ] || continue
+        [ $first -eq 1 ] || printf ','
+        first=0
+        obj "$(basename "$d")"
+    done
+    printf ']}\n'
+}
+
+cmd_info() {
+    [ -d "$THEMES/$1" ] || { printf '{"ok":0,"err":"no such theme"}\n'; return 1; }
+    d="$THEMES/$1"
+    printf '{"ok":1,"id":"%s","name":"%s","type":"%s","app":%s,"frame":%s}\n' \
+        "$(jesc "$1")" "$(jesc "$(name_of "$d")")" "$(type_of "$d")" \
+        "$([ -f "$d/app" ] && echo 1 || echo 0)" \
+        "$([ -f "$d/frame.raw" ] && echo 1 || echo 0)"
+}
+
+cmd_install() {
+    TAR=$1; ID=$2
+    [ -f "$TAR" ] || { printf '{"ok":0,"err":"no file"}\n'; return 1; }
+    mkdir -p "$THEMES"
+
+    TMP=$(mktemp -d /tmp/e87n-theme.XXXXXX) || { printf '{"ok":0,"err":"mktemp"}\n'; return 1; }
+    if ! tar -xzf "$TAR" -C "$TMP" 2>/dev/null; then
+        rm -rf "$TMP"; printf '{"ok":0,"err":"bad archive (need tar.gz)"}\n'; return 1
+    fi
+
+    # 允许包里多一层目录
+    SRC=$TMP
+    [ -f "$SRC/theme.json" ] || {
+        for d in "$TMP"/*/; do [ -f "$d/theme.json" ] && { SRC=$d; break; }; done
+    }
+    [ -f "$SRC/theme.json" ] || { rm -rf "$TMP"; printf '{"ok":0,"err":"theme.json missing"}\n'; return 1; }
+
+    # ---- 校验 ----
+    if [ -f "$SRC/app" ]; then
+        magic=$(head -c 4 "$SRC/app" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+        if [ "$magic" != "7f454c46" ]; then
+            rm -rf "$TMP"; printf '{"ok":0,"err":"app is not an ELF"}\n'; return 1
+        fi
+        mach=$(dd if="$SRC/app" bs=1 skip=18 count=2 2>/dev/null | od -An -tx1 | tr -d ' \n')
+        if [ "$mach" != "b700" ]; then
+            rm -rf "$TMP"; printf '{"ok":0,"err":"app is not aarch64 (machine=%s)"}\n' "$mach"; return 1
+        fi
+        chmod +x "$SRC/app"
+    fi
+    if [ -f "$SRC/frame.raw" ]; then
+        sz=$(wc -c < "$SRC/frame.raw" | tr -d ' ')
+        if [ "$sz" != "121552" ]; then
+            rm -rf "$TMP"; printf '{"ok":0,"err":"frame.raw must be 121552 bytes (428x142 RGB565), got %s"}\n' "$sz"; return 1
+        fi
+    fi
+    if [ ! -f "$SRC/app" ] && [ ! -f "$SRC/frame.raw" ]; then
+        rm -rf "$TMP"; printf '{"ok":0,"err":"theme needs app (ELF) or frame.raw"}\n'; return 1
+    fi
+
+    # ---- id ----
+    # 优先用上传的文件名（可预期、可重复），其次 theme.json 的 name，最后时间戳
+    if [ -z "$ID" ]; then
+        b=$(basename "$TAR")
+        case "$b" in
+            *.tar.gz) ID=${b%.tar.gz} ;;
+            *.tgz)    ID=${b%.tgz} ;;
+            *)        ID=${b%.*} ;;
+        esac
+    fi
+    [ -n "$ID" ] || ID=$(name_of "$SRC")
+    ID=$(sanitize "$ID")
+    [ -n "$ID" ] || ID="theme-$(date +%s)"
+    DEST="$THEMES/$ID"
+
+    # 覆盖安装：先删旧的，避免残留文件
+    rm -rf "$DEST"
+    mkdir -p "$DEST"
+    # 只拷允许的文件，防止包里塞别的东西
+    for f in theme.json app frame.raw preview.raw README.md; do
+        [ -f "$SRC/$f" ] && cp -f "$SRC/$f" "$DEST/$f"
+    done
+    chmod +x "$DEST/app" 2>/dev/null
+    rm -rf "$TMP"
+
+    printf '{"ok":1,"id":"%s","name":"%s","type":"%s"}\n' \
+        "$(jesc "$ID")" "$(jesc "$(name_of "$DEST")")" "$(type_of "$DEST")"
+}
+
+cmd_remove() {
+    ID=$(sanitize "$1")
+    [ -n "$ID" ] || { printf '{"ok":0,"err":"bad id"}\n'; return 1; }
+    [ -d "$THEMES/$ID" ] || { printf '{"ok":0,"err":"no such theme"}\n'; return 1; }
+    rm -rf "$THEMES/$ID"
+    printf '{"ok":1}\n'
+}
+
+cmd_run() {
+    ID=$(sanitize "$1")
+    D="$THEMES/$ID"
+    [ -d "$D" ] || { echo "e87n-theme: no such theme: $ID" >&2; exit 1; }
+
+    # 内置显示程序先让位（它一直在写 /dev/fb0）。busybox 没有 pkill，用 killall。
+    killall e87n-display 2>/dev/null
+    sleep 1
+
+    if [ -f "$D/app" ]; then
+        chmod +x "$D/app" 2>/dev/null
+        exec "$D/app"
+    fi
+    if [ -f "$D/frame.raw" ]; then
+        # 静态主题：写一帧后保持（不占用进程）
+        /usr/sbin/screen-ctl raw "$D/frame.raw"
+        exec sleep 2147483647
+    fi
+    echo "e87n-theme: theme $ID is not runnable" >&2
+    exit 1
+}
+
+case "$1" in
+    list)    cmd_list ;;
+    info)    cmd_info "$2" ;;
+    install) cmd_install "$2" "$3" ;;
+    remove)  cmd_remove "$2" ;;
+    run)     cmd_run "$2" ;;
+    *)
+        echo "Usage: $0 list|info <id>|install <tar.gz> [id]|remove <id>|run <id>" >&2
+        exit 1
+        ;;
+esac

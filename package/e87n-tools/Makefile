@@ -53,6 +53,9 @@ define Package/e87n-tools/install
 		./files/usr/sbin/e87n-metrics \
 		$(1)/usr/sbin/e87n-metrics
 	$(INSTALL_BIN) \
+		./files/usr/sbin/e87n-theme \
+		$(1)/usr/sbin/e87n-theme
+	$(INSTALL_BIN) \
 		./files/usr/libexec/rpcd/e87n \
 		$(1)/usr/libexec/rpcd/e87n
 	$(INSTALL_BIN) \

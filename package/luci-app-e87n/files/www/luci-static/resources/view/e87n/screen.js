@@ -1,7 +1,8 @@
 /*
  * E87N 屏幕控制 LuCI 页面
  * - 背光: 点亮 / 熄灭（基于 fb0/blank，实时反映状态）
- * - 内容: 显示页面选择 / 轮播间隔 / 自定义文本
+ * - 内容: 显示页面选择（内置 1-4 / 轮播 / 已导入主题）
+ * - 主题: 上传 tar.gz 主题包，立刻出现在"显示页面"下拉里
  * - 预览: fb0 帧 base64 -> canvas
  */
 'use strict';
@@ -125,10 +126,105 @@ return view.extend({
             var q = 'action=set_display&page=' + encodeURIComponent(pgSel.value) +
                     '&cycle=' + encodeURIComponent(cyInput.value || '10');
             if (txInput.value) { q += '&text=' + encodeURIComponent(txInput.value); }
-            that.call(q).then(function () { refresh(); });
+            that.call(q).then(function () { refresh(); loadPreview(); });
         });
         dispCard.appendChild(dispBtn);
         root.appendChild(dispCard);
+
+        /* ---------- 主题管理 ---------- */
+        var thCard = el('div', null, { class: 'cbi-section cbi-section-node' });
+        thCard.appendChild(el('h3', '主题（导入后自动出现在上面的"显示页面"里）'));
+
+        var thRow = el('div', null, { class: 'cbi-value' });
+        thRow.appendChild(el('label', '主题包', { class: 'cbi-value-title' }));
+        var thWrap = el('div', null, { class: 'cbi-value-field' });
+        var thInput = el('input', null, { id: 'th-file', type: 'file', accept: '.tar.gz,.tgz,application/gzip' });
+        var thBtn = el('button', '导入主题', { class: 'btn cbi-button-apply' });
+        thWrap.appendChild(thInput);
+        thWrap.appendChild(document.createTextNode(' '));
+        thWrap.appendChild(thBtn);
+        thRow.appendChild(thWrap);
+        thCard.appendChild(thRow);
+
+        var thMsg = el('div', '', { class: 'cbi-value-description' });
+        thCard.appendChild(thMsg);
+        var thList = el('div', null, { id: 'th-list' });
+        thCard.appendChild(thList);
+        thCard.appendChild(el('div',
+            '主题包 = tar.gz：theme.json（name）+ app（aarch64 ELF）或 frame.raw（428x142 RGB565）。' +
+            'ELF 里可用 /var/run/e87n/metrics.json 或 ubus call e87n status 读温度/网速。',
+            { class: 'cbi-value-description' }));
+        root.appendChild(thCard);
+
+        var themes = [];
+
+        function loadThemes() {
+            return that.call('action=themes').then(function (r) {
+                themes = (r && r.themes) || [];
+                /* 重建下拉里的主题项 */
+                Array.prototype.slice.call(pgSel.querySelectorAll('option[data-theme]'))
+                    .forEach(function (o) { o.parentNode.removeChild(o); });
+                themes.forEach(function (t) {
+                    var opt = el('option', '主题: ' + t.name + '  [' + t.type + ']');
+                    opt.value = 'theme:' + t.id;
+                    opt.setAttribute('data-theme', t.id);
+                    pgSel.appendChild(opt);
+                });
+                /* 重建主题列表 */
+                while (thList.firstChild) { thList.removeChild(thList.firstChild); }
+                if (themes.length === 0) {
+                    thList.appendChild(el('div', '（还没有导入主题）', { class: 'cbi-value-description' }));
+                }
+                themes.forEach(function (t) {
+                    var row = el('div', null, { class: 'cbi-value' });
+                    row.appendChild(el('label', t.name + '  [' + t.type + ']', { class: 'cbi-value-title' }));
+                    var f = el('div', null, { class: 'cbi-value-field' });
+                    f.appendChild(el('code', t.id, { style: 'margin-right:1em' }));
+                    var useBtn = el('button', '使用', { class: 'btn cbi-button-apply' });
+                    useBtn.addEventListener('click', function () {
+                        pgSel.value = 'theme:' + t.id;
+                        dispBtn.click();
+                    });
+                    var delBtn = el('button', '删除', { class: 'btn cbi-button-remove' });
+                    delBtn.addEventListener('click', function () {
+                        that.call('action=remove_theme&id=' + encodeURIComponent(t.id)).then(function () {
+                            thMsg.textContent = '已删除 ' + t.name;
+                            loadThemes();
+                        });
+                    });
+                    f.appendChild(useBtn);
+                    f.appendChild(document.createTextNode(' '));
+                    f.appendChild(delBtn);
+                    row.appendChild(f);
+                    thList.appendChild(row);
+                });
+                applyPendingPage();
+            });
+        }
+
+        thBtn.addEventListener('click', function () {
+            var file = thInput.files[0];
+            if (!file) { thMsg.textContent = '请先选择一个 .tar.gz 主题包'; return; }
+            var id = file.name.replace(/\.(tar\.gz|tgz)$/i, '');
+            thMsg.textContent = '上传中…';
+            var x = new XMLHttpRequest();
+            x.open('POST', '/cgi-bin/e87n?action=import_theme&id=' + encodeURIComponent(id), true);
+            x.onreadystatechange = function () {
+                if (x.readyState === 4) {
+                    try {
+                        var rj = JSON.parse(x.responseText);
+                        if (rj && rj.ok) {
+                            thMsg.textContent = '导入成功：' + rj.name + '（id=' + rj.id + '，type=' + rj.type +
+                                '），已加入"显示页面"列表';
+                            loadThemes();
+                        } else {
+                            thMsg.textContent = '导入失败：' + ((rj && rj.err) || x.responseText);
+                        }
+                    } catch (e) { thMsg.textContent = '导入失败（HTTP ' + x.status + '）'; }
+                }
+            };
+            x.send(file);
+        });
 
         /* ---------- 导入自定义图片 ---------- */
         var impCard = el('div', null, { class: 'cbi-section cbi-section-node' });
@@ -260,6 +356,15 @@ return view.extend({
         });
 
         var initialized = false;
+        var pendingPage = null;
+
+        function applyPendingPage() {
+            if (pendingPage == null) { return; }
+            if (pgSel.querySelector('option[value="' + pendingPage.replace(/"/g, '') + '"]')) {
+                pgSel.value = pendingPage;
+            }
+            pendingPage = null;
+        }
 
         function refresh() {
             that.call('action=status').then(function (s) {
@@ -268,7 +373,10 @@ return view.extend({
                 /* 只在首次加载时同步显示页面/轮播间隔到控件；之后绝不覆盖用户
                  * 正在编辑的选择（否则 5s 定时刷新会把用户未提交的选择跳回去）。 */
                 if (!initialized && s.display) {
-                    if (s.display.page) { pgSel.value = s.display.page; }
+                    if (s.display.page) {
+                        pendingPage = s.display.page;
+                        applyPendingPage();
+                    }
                     if (s.display.cycle) { cyInput.value = s.display.cycle; }
                     initialized = true;
                 }
@@ -276,6 +384,7 @@ return view.extend({
         }
 
         refresh();
+        loadThemes();
         loadPreview();
         setInterval(refresh, 5000);
         pvTimer = setInterval(loadPreview, 2000);

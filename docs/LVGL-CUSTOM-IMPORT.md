@@ -1,16 +1,18 @@
-# E87N 屏幕：自定义 LVGL 导入 + 指标接口
+# E87N 屏幕：主题导入 + 指标接口
 
-面向"把自己的 LVGL 界面放到 E87N 屏幕上，并且要显示温度/网速"的场景。
+两条主线：
+
+1. **指标接口** —— 屏幕上的温度/网速等数据，自定义程序直接读，不用自己解析 `/proc`。
+2. **主题导入** —— LuCI 里上传主题包，立刻出现在"显示页面"下拉里，选中就生效。
 
 ---
 
-## 1. 数据接口（三种，任选）
+## 1. 指标接口（三种，任选）
 
-屏幕上的数据只有**一个来源**：`/usr/sbin/e87n-metrics` 每秒采样一次，写到
-`/var/run/e87n/metrics.json`。它和内置 UI 的「下载/上传/温度/风扇」是同一份算法
-（`/proc/net/dev` 差分、`thermal_zone0`、`hwmon pwm1`），所以数值一定对得上。
+唯一数据源：`/usr/sbin/e87n-metrics` 每秒采样，原子写入 `/var/run/e87n/metrics.json`。
+与内置 UI 同源（`/proc/net/dev` 差分、`thermal_zone0`、`hwmon/pwm1`），数值必然一致。
 
-### 1.1 JSON 文件（推荐，最省事）
+### 1.1 JSON 文件（推荐）
 
 ```sh
 cat /var/run/e87n/metrics.json
@@ -25,116 +27,141 @@ cat /var/run/e87n/metrics.json
  "backlight":"on","display_page":"4"}
 ```
 
-- 文件是**原子替换**（写 `.tmp` 再 `mv`），不会读到半截内容。
-- 1 秒刷新一次；建议你的程序也按 1 Hz 读。
-- 单位：`rx_bps`/`tx_bps` 是 **字节/秒**（和屏幕上的 "B/s" 同源，不是 bit）。
-- 数值未知时为 `-1`，字符串未知时为 `""`。
-- 想换统计接口：`uci set e87n-display.global.iface=eth0 && uci commit e87n-display`
+- 原子替换（写 `.tmp` 再 `mv`），不会读到半截；1 秒一次。
+- `rx_bps`/`tx_bps` 是 **字节/秒**（和屏幕 "B/s" 同源）。
+- 未知数值为 `-1`，未知字符串为 `""`。
+- 换统计接口：`uci set e87n-display.global.iface=eth0 && uci commit e87n-display`
 
 ### 1.2 ubus
 
 ```sh
-ubus call e87n status        # 返回同样的 JSON
+ubus call e87n status
 ```
-对象由 `/usr/libexec/rpcd/e87n` 提供（rpcd exec 插件），LuCI 里也已授权
-（`luci-app-e87n` 的 acl 增加了 `e87n` 的 `status`）。
+（`/usr/libexec/rpcd/e87n` 提供，LuCI ACL 已授权 `e87n status`）
 
-### 1.3 C SDK（给 C/C++ 的 LVGL 程序）
+### 1.3 C SDK
 
-源码在 `docs/sdk/`，固件里也带了一份：`/usr/share/e87n-sdk/`。无第三方依赖。
+`docs/sdk/e87n_metrics.{h,c}`，固件里也装到 `/usr/share/e87n-sdk/`。无第三方依赖。
 
 ```c
 #include "e87n_metrics.h"
 
-static void tick_cb(lv_timer_t *t)
-{
-    e87n_metrics_t m;
-    if (e87n_metrics_read(&m) != 0)
-        return;
-    lv_label_set_text_fmt(lv_obj_get_child(scr, 0), "%d°C", m.temp_c);
-    lv_label_set_text_fmt(lv_obj_get_child(scr, 1), "↓ %lu B/s", m.rx_bps);
-    lv_label_set_text_fmt(lv_obj_get_child(scr, 2), "↑ %lu B/s", m.tx_bps);
-}
-
-void ui_init(void)
-{
-    /* ... 建界面 ... */
-    lv_timer_create(tick_cb, 1000, NULL);
+e87n_metrics_t m;
+if (e87n_metrics_read(&m) == 0) {
+    lv_label_set_text_fmt(lbl_temp, "%d°C", m.temp_c);
+    lv_label_set_text_fmt(lbl_down, "↓ %lu B/s", m.rx_bps);
 }
 ```
 
-完整可编译示例：`docs/sdk/example_custom_page.c`。
+可编译示例：`docs/sdk/example_custom_page.c`。
 
 ### 1.4 字段表
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `ts` | int | 采样时间戳 |
-| `uptime` | int | 开机秒数 |
-| `temp_c` | int | 温度 °C（`<0` 表示无效） |
-| `temp_ok` | 0/1 | 温度是否有效 |
+| `ts` / `uptime` | int | 采样时间戳 / 开机秒数 |
+| `temp_c` / `temp_ok` | int | 温度 °C（`<0` 无效） / 是否有效 |
 | `cpu_pct` / `ram_pct` / `disk_pct` | int | 占用率 % |
-| `fan_pwm` / `fan_pct` | int | 风扇 PWM(0-255) / 百分比(0-100) |
-| `fan_mode` | string | `auto` / `manual` / `off` |
+| `fan_pwm` / `fan_pct` | int | PWM 0–255 / 百分比 0–100 |
+| `fan_mode` | string | auto / manual / off |
 | `rx_bps` / `tx_bps` | ulong | 下载/上传 字节/秒 |
-| `net_iface` | string | 统计接口（默认 `br-lan`） |
-| `wan_ip` / `wan6` | string | WAN v4 / v6（未拨号时为空） |
-| `lan_ip` / `lan6` | string | LAN v4 / v6 |
-| `backlight` | string | `on` / `off` / `unknown` |
-| `display_page` | string | 当前页 1-4 / `cycle` |
+| `net_iface` | string | 统计接口（默认 br-lan） |
+| `wan_ip` / `wan6` / `lan_ip` / `lan6` | string | 地址（未拨号时为空） |
+| `backlight` | string | on / off / unknown |
+| `display_page` | string | 1-4 / cycle / theme:<id> |
 
-控制类操作（开关屏、切页、风扇）继续用现成的 `screen-ctl` / `fanctl` / CGI，
-不建议自定义程序直接写 GPIO。
+控制类（开关屏/切页/风扇）用 `screen-ctl`、`fanctl`、CGI，不建议自定义程序直接写 GPIO。
 
 ---
 
-## 2. 自定义 LVGL 导入（三条路径，按需求选）
+## 2. 主题导入（LuCI 里上传，自动进"显示页面"列表）
 
-### 路径 A：只换文字/图片（不用编译）
+### 2.1 主题包格式
 
-- 文字：`/etc/config/e87n-display` 里 `list custom_text '...'`，或 LuCI 屏幕页提交。
-- 图片：LuCI 屏幕页的"导入图片"，浏览器端转 RGB565 后 `screen-ctl raw` 显示。
+`tar.gz`，根目录（或唯一子目录）内含：
 
-适合"换个 logo / 加两行字"。
-
-### 路径 B：整屏自己画（源码级导入，推荐做正经自定义 UI）
-
-内置 UI 是 SquareLine/LVGL Editor 风格的导出（`package/e87n-display/src/lib/ui/`
-下的 `ui_init()` + `ui_Screen1..4`）。导入自定义 UI 的契约只有三条：
-
-1. 提供 `void ui_init(void)`，内部创建并加载你的 screen；
-2. 你的 screen 用 `lv_screen_active()` 或 `lv_disp_load_scr()` 加载；
-3. 需要数据就按 §1 读（**不要**直接解析 `/proc`）。
-
-把导出的 `ui/` 整个替换进 `package/e87n-display/src/lib/ui/`，然后构建
-**只编这个包**（比整机快得多）：
-
-```sh
-# 本地/CI 均可；首次需要先 prepare 过一次
-make package/e87n-display/compile V=s
-# 产物: build_dir/target-*/e87n-display/e87n-display  →  scp 到 /usr/bin/
+```
+theme.json      （必需）{"name":"我的主题","desc":"可选说明"}
+app             （二选一）aarch64 ELF —— type=app，程序自己画屏
+frame.raw       （二选一）428x142 RGB565 整帧，121552 字节 —— type=image，静态画面
 ```
 
-> 注意：`ui.c` 里的 `ui_init()` 由 LVGL Editor 生成时通常已经存在；
-> 如果你是手写，直接自己写 `ui_init()` 即可。
+- `app` 必须是 **aarch64 ELF**（安装时会校验 ELF magic + `EM_AARCH64`）。
+- `frame.raw` 必须正好 `121552` 字节（安装时校验）。
+- 有 `app` 就按 app 运行；否则按 image 显示。
 
-### 路径 C：运行时上传（不重编固件）
+### 2.2 安装 / 使用
 
-历史上实现过"上传 aarch64 ELF 直接替换显示程序"（commit `48c2e21`），
-当前 `screen.js` 只保留了图片导入。要恢复 ELF 上传需要：
+- **LuCI**：屏幕控制 → 主题 → 选择 `.tar.gz` → "导入主题"。
+  导入成功后主题立刻出现在上方"显示页面"下拉（`主题: <name> [app|image]`），选中 → 应用即可。
+- **CLI**：
+  ```sh
+  e87n-theme install /tmp/mytheme.tar.gz [id]   # id 默认取文件名
+  e87n-theme list
+  uci set e87n-display.global.page=theme:<id>
+  uci commit e87n-display
+  /etc/init.d/e87n-display restart
+  e87n-theme remove <id>
+  ```
 
-- 上传后校验 ELF magic + `EM_AARCH64`；
-- 部署到 `/usr/bin/e87n-display.custom`，`/etc/init.d/e87n-display` 优先启动它；
-- 失败自动回退到内置程序（避免上传坏的 ELF 把屏搞死）。
+主题存放在 `/etc/e87n-display/themes/<id>/`（overlay，重启保留）。
 
-需要的话可以加回来（CGI 里 `import_app` + LuCI 一个上传控件，约 100 行）。
+运行时行为：切到主题会先停掉内置 UI（`killall e87n-display`），把 `/dev/fb0` 让出来；
+切回 1-4/cycle 时恢复正常。主题目录被删但 `uci page` 还指向它时，启动会自动回退到第 1 页。
+
+### 2.3 做一个 `type=app` 主题
+
+app 运行在 428×142 的 `/dev/fb0` 上，必须自己建 LVGL 显示（或用任意方式写 fb）：
+
+```c
+#include "lvgl.h"
+#include "e87n_metrics.h"
+
+int main(void)
+{
+    lv_init();
+    lv_display_t *d = lv_linux_fbdev_create();
+    lv_linux_fbdev_set_file(d, "/dev/fb0");
+    /* 建界面 + 1 Hz 定时器读 e87n_metrics_read() */
+    for (;;) { lv_timer_handler(); usleep(5000); }
+}
+```
+
+编译要点（设备是 **musl + aarch64**）：
+
+- 用 **OpenWrt SDK**（与固件同版本）或直接在 `package/` 下加包；
+- LVGL 需要一起编进去（设备上没有 `liblvgl.so`），参考 `package/e87n-display/src/CMakeLists.txt`；
+- 依赖 `+libstdcpp`（如果用了 C++/LVGL 的 C++ 部分）。
+
+示例主题骨架：`docs/sdk/example-theme/`（含生成 `frame.raw` 的脚本）。
+
+### 2.4 做一个 `type=image` 主题（不用编译）
+
+```sh
+# 1) 准备一张 428x142 的图（或任意图，脚本会缩放）
+# 2) 生成 RGB565 原始帧
+python3 docs/sdk/example-theme/make-frame.py my.png frame.raw
+# 3) 打包
+cp docs/sdk/example-theme/theme.json .
+tar -czf mytheme.tar.gz theme.json frame.raw
+# 4) 在 LuCI 里导入，或 e87n-theme install mytheme.tar.gz
+```
+
+静态画面不会刷新（没有实时数据）。要显示温度/网速就做 `type=app`。
 
 ---
 
-## 3. 注意
+## 3. 其他导入方式（保留）
 
-- 屏是 **428×142 RGB565**，`/dev/fb0`，driver 为 `fb_nv3007`（内建，非模块）。
-- 背光：GPIO524，**低电平亮**；优先用 `/usr/sbin/screen-ctl on|off`。
-- 自定义程序崩溃不会影响指标守护（`e87n-metrics` 独立进程），SSH 进去
-  `/etc/init.d/e87n-display restart` 即可恢复。
-- 指标守护默认随开机启动（`/etc/uci-defaults/98-e87n-metrics`）。
+- **UCI 自定义文本**：`/etc/config/e87n-display` 的 `list custom_text`（显示在 Screen1 顶部）。
+- **图片直接上屏**：LuCI"导入自定义画面"，浏览器端转 RGB565 后 `screen-ctl raw`（一次性，不保存为主题）。
+- **源码级替换 UI**：把 SquareLine/LVGL Editor 导出替换 `package/e87n-display/src/lib/ui/`，
+  契约是 `ui_init()`；`make package/e87n-display/compile` 即可，不必整机重编。
+
+## 4. 注意
+
+- 屏：428×142 RGB565，`/dev/fb0`，驱动 `fb_nv3007`（内建）。
+- 背光：GPIO524，低电平亮；用 `screen-ctl on|off`。
+- 主题 app 崩溃不影响指标守护（独立进程）；SSH 进去
+  `uci set e87n-display.global.page=1 && /etc/init.d/e87n-display restart` 即可恢复。
+- 指标守护开机自启（`/etc/uci-defaults/98-e87n-metrics`）。
