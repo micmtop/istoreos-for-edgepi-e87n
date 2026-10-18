@@ -70,3 +70,19 @@ jobs:
           done
           echo "=== defconfig 第二次的警告（store/quickstart/taskd）"
           grep -iE "store|quickstart|taskd|xterm|lua" /tmp/defconfig2.log | head -20
+
+      - name: Why kconfig still drops them (generated Config.in stanza)
+        run: |
+          cd build/istoreos
+          for pkg in luci-app-store luci-app-quickstart; do
+            echo "=== config PACKAGE_$pkg"
+            awk -v k="config PACKAGE_$pkg" '$0==k{f=1} f{print} f&&/^$/{exit}' tmp/.config-package.in
+          done
+          echo "=== 它们在 config-package.in 里出现几次"
+          grep -c "PACKAGE_luci-app-store" tmp/.config-package.in
+          grep -c "PACKAGE_luci-app-quickstart" tmp/.config-package.in
+          echo "=== defconfig 全量警告"
+          grep -i "warning" /tmp/defconfig2.log | head -20
+          echo "=== 直接问 kconfig：这些符号是否可见"
+          ./scripts/config -s PACKAGE_luci-app-store
+          ./scripts/config -s PACKAGE_luci-app-quickstart
