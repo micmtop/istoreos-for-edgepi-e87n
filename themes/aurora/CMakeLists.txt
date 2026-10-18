@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(e87n_theme_aurora C)
 
 set(CMAKE_C_STANDARD 99)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wall")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wall -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L")
 
 # LVGL 源码目录（默认用仓库里内置的那份）
 if(NOT LVGL_DIR)

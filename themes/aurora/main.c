@@ -295,7 +295,7 @@ static void build_ui(void)
     lv_label_set_text(lbl_saying, "");
 
     /* 右下角运行时长，很淡 */
-    lbl_uptime = label(scr, W - 92, 126, &lv_font_montserrat_10, C_DIM, "");
+    lbl_uptime = label(scr, W - 92, 126, &lv_font_montserrat_12, C_DIM, "");
 
     lv_screen_load(scr);
 }
