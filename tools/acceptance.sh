@@ -138,11 +138,16 @@ if [ -d /sys/module/nvme ] || lsmod 2>/dev/null | grep -q '^nvme'; then ok "nvme
 
 # ---------------- iStoreOS 商店 / 向导 ----------------
 echo "== 商店 / 向导 =="
-if [ -f /usr/share/luci/menu.d/luci-app-store.json ] || [ -d /www/luci-static/resources/view/store ]; then
-    ok "iStore 商店前端已安装"
+# 商店是 Lua 时代的 app（controller + view 在 /usr/lib/lua/luci/ 下），
+# 不是 JS 的 menu.d/resources 结构，两种都认，避免误判。
+if [ -f /usr/lib/lua/luci/controller/store.lua ] ||
+   [ -f /usr/share/luci/menu.d/luci-app-store.json ] ||
+   [ -f /www/luci-static/resources/view/store/main.js ]; then
+    ok "iStore 商店已安装（$(ls /usr/lib/lua/luci/controller/store.lua 2>/dev/null || echo JS))"
 else
     bad "iStore 商店缺失（luci-app-store 没进固件）"
 fi
+[ -e /etc/init.d/istore ] && ok "istore 服务存在" || info "istore 服务未见"
 if [ -f /usr/share/luci/menu.d/luci-app-quickstart.json ]; then
     ok "网络向导前端已安装"
 else
