@@ -60,8 +60,9 @@ calc_pwm() {
     [ -z "$lower_t" ] && [ -z "$upper_t" ] && { echo 0; return; }
     # 低于最低点
     [ -z "$lower_t" ] && { echo 0; return; }
-    # 高于最高点
-    [ -z "$upper_t" ] && { echo "${lower_p:-0}"; return; }
+    # 高于最高点：lower_p 是百分比，必须同样换算成 PWM（旧版直接返回百分比，
+    # 导致超过最高温度点后风扇反而从 255 掉到 100）
+    [ -z "$upper_t" ] && { echo $(( ${lower_p:-0} * pwm_max / 100 )); return; }
     # 线性插值在 (lower, upper] 得到 percent
     local pct_out=0
     if [ "$upper_t" -gt "$lower_t" ]; then
@@ -152,6 +153,15 @@ do_run() {
             logger -t fan-control "temp=${t_c}C -> pwm=${new_pwm} (mode=$mode)"
         fi
 
+        # 回读校验：pwm 被别的驱动（例如内核 thermal governor 把 fan 当
+        # cooling device）覆盖时，这里能立刻看出来，不用等用户发现风扇不听话。
+        if [ "$set_pwm" = "1" ] && [ -f "$pwm_path" ]; then
+            rb=$(cat "$pwm_path" 2>/dev/null)
+            if [ -n "$rb" ] && [ "$rb" != "$new_pwm" ]; then
+                logger -t fan-control "WARN: pwm 回读=$rb 与写入=$new_pwm 不一致（有其他驱动在覆盖？检查 cooling-maps / thermal policy）"
+            fi
+        fi
+
         last_pwm=$new_pwm
         last_temp=$t_c
         sleep "$interval"
@@ -182,5 +192,11 @@ reload() {
 
 case "$1" in
     start|stop|restart|reload) "$1" ;;
-    *) echo "usage: $0 start|stop|restart|reload" ;;
+    calc)
+        # 调试/自检用：给定摄氏温度，按当前曲线打印应有的 PWM（0..pwm_max）
+        [ -n "$2" ] || { echo "usage: $0 calc <temp_c>"; exit 1; }
+        _pm=$(uci_get pwm_max); _pm=${_pm:-255}
+        calc_pwm "$2" "$_pm"
+        ;;
+    *) echo "usage: $0 start|stop|restart|reload|calc <temp_c>" ;;
 esac

@@ -97,6 +97,20 @@
         status = "okay";
 };
 
+/* 风扇由用户态 fan-control 独占（曲线 + 滞回 + LuCI 可调）。
+ * 上游 mt7987.dtsi 的 cpu_thermal 里有三条 cooling-map 把 &fan 挂在
+ * 40/85/115℃ 三个 active trip 上，step_wise governor 会在 40℃ 以上就把
+ * 风扇钉在 cooling-levels[1]=10（约 4%），并不断覆盖 fan-control 写入的 PWM，
+ * 结果自定义曲线形同失效。这里删掉这三条 map（CPU 降频那条保留），
+ * 让 pwm1 只由 fan-control 写。 */
+&cpu_thermal {
+        cooling-maps {
+                /delete-node/ cpu-active-high;
+                /delete-node/ cpu-active-low;
+                /delete-node/ cpu-passive;
+        };
+};
+
 &fan {
 	cooling-levels = <0 10 20 30 40 50 60 70 80 90 100 110 120
 			  130 140 150 160 170 180 190 200 210 220 240 255>;

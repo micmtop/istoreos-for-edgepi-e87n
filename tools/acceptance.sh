@@ -89,6 +89,30 @@ done
 [ -n "$T" ] && ok "温度传感器 $T = $(( $(cat $T) / 1000 ))°C" || bad "未找到温度传感器"
 pidof fan-control >/dev/null 2>&1 && ok "fan-control 运行中" || bad "fan-control 未运行"
 
+# ---------------- 风扇是否真的听用户态 ----------------
+echo "== 风扇控制权 =="
+FAN_MODE=$(uci -q get fan.global.mode)
+FAN_PWM=$(for p in /sys/class/hwmon/hwmon*/pwm1; do [ -f "$p" ] && cat "$p" && break; done)
+if [ "$FAN_MODE" = "auto" ] && [ -x /usr/sbin/fan-control ] && [ -n "$FAN_PWM" ]; then
+    T=$(for h in /sys/class/hwmon/hwmon*; do [ -f "$h/temp1_input" ] && cat "$h/temp1_input" && break; done)
+    TC=$(( ${T:-0} / 1000 ))
+    EXP=$(/usr/sbin/fan-control calc "$TC" 2>/dev/null)
+    if [ -n "$EXP" ]; then
+        DIFF=$(( FAN_PWM - EXP )); [ "$DIFF" -lt 0 ] && DIFF=$(( -DIFF ))
+        if [ "$DIFF" -le 12 ]; then
+            ok "风扇跟随曲线：${TC}°C 期望 pwm=$EXP，实际 $FAN_PWM"
+        else
+            bad "风扇未跟随曲线：${TC}°C 期望 pwm=$EXP，实际 $FAN_PWM（内核 thermal 是否又在抢控制？）"
+        fi
+    fi
+else
+    info "风扇 mode=$FAN_MODE，跳过曲线核对"
+fi
+# 内核 cooling-map 不应再引用 fan：被映射时 cur_state 会被 governor 改写
+if [ -e /sys/class/thermal/cooling_device0/cur_state ]; then
+    info "cooling_device0(pwm-fan) cur_state=$(cat /sys/class/thermal/cooling_device0/cur_state)（未被 zone 映射时不再变化）"
+fi
+
 # ---------------- LED / 按键 ----------------
 echo "== LED / 按键 =="
 for l in /sys/class/leds/*; do

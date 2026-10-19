@@ -5,7 +5,15 @@ START=99
 STOP=10
 
 start() {
-    # 守护进程自身会探测 pwm 路径并置 pwm1_enable；这里只确保服务拉起
+    # 内核 thermal governor 已不再驱动 fan（见 board dts 的 cooling-maps 删除），
+    # 所以驱动 probe 后 pwm 是 0（风扇停）。先给一个保守底速，等守护进程接管。
+    if [ "$(uci -q get fan.global.mode)" != "off" ]; then
+        for p in /sys/class/hwmon/hwmon*/pwm1; do
+            [ -f "$p" ] || continue
+            [ "$(cat "${p%pwm1}pwm1_enable" 2>/dev/null)" = "0" ] &&                 echo 1 > "${p%pwm1}pwm1_enable" 2>/dev/null
+            [ "$(cat "$p" 2>/dev/null)" = "0" ] && echo 128 > "$p" 2>/dev/null
+        done
+    fi
     if [ "$(uci -q get fan.global.enabled)" != "0" ]; then
         /usr/sbin/fan-control start
     else
