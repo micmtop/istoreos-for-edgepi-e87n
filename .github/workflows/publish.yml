@@ -1,0 +1,68 @@
+name: Publish firmware
+
+# 把一个构建 run 的产物转存成 GitHub Release（在 GitHub 机器上跑，不走本地网络）。
+# 之后国内可用镜像下载：
+#   https://ghfast.top/https://github.com/OWNER/REPO/releases/download/TAG/FILE
+#   https://gh-proxy.com/https://github.com/OWNER/REPO/releases/download/TAG/FILE
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: '源构建 run id'
+        type: string
+        required: true
+      tag:
+        description: 'Release tag'
+        type: string
+        required: true
+      title:
+        description: 'Release 标题'
+        type: string
+        default: 'E87N iStoreOS 25.12.5'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download firmware artifact from the build run
+        uses: actions/download-artifact@v4
+        with:
+          name: e87n-istoreos-firmware
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: fw
+
+      - name: Collect the two files people actually need
+        run: |
+          set -e
+          cd fw
+          SYS=istoreos-mediatek-filogic-edgepi_e87n-squashfs-sysupgrade.bin
+          test -f "$SYS"
+          rm -rf k && mkdir -p k
+          tar -xf "$SYS" -C k "sysupgrade-edgepi,e87n/kernel"
+          KVER=$(grep -aoE "[0-9]+\.[0-9]+\.[0-9]+" k/sysupgrade-edgepi,e87n/kernel | head -1)
+          cp k/sysupgrade-edgepi,e87n/kernel "edgepi_e87n-kernel-${KVER}.fit"
+          sha256sum "$SYS" "edgepi_e87n-kernel-${KVER}.fit" > SHA256SUMS
+          cat SHA256SUMS
+          echo "SYSUP=$SYS" >> "$GITHUB_ENV"
+          echo "FIT=edgepi_e87n-kernel-${KVER}.fit" >> "$GITHUB_ENV"
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="${{ inputs.tag }}"
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+              --title "${{ inputs.title }} $TAG" \
+              --notes "从构建 run ${{ inputs.run_id }} 转存。整机升级用 sysupgrade 包；只换内核用 kernel FIT（dd 到 /dev/mmcblk0p4）。"
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber \
+            "fw/$SYSUP" "fw/$FIT" "fw/SHA256SUMS"
+          echo "=== release assets ==="
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | "\(.name) \(.size)"'
