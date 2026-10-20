@@ -59,8 +59,15 @@ static void load_theme_font(const char *argv0)
         snprintf(path, sizeof(path), "font.ttf");
 
     f = fopen(path, "rb");
-    if (!f)
-        return;
+    if (!f) {
+        /* 没自带字体就用系统字体（随固件装在 /usr/share/e87n/font.ttf），
+         * 主题包因此不必再塞 1.2MB 字体 */
+        const char *env = getenv("E87N_FONT");
+        snprintf(path, sizeof(path), "%s", env ? env : "/usr/share/e87n/font.ttf");
+        f = fopen(path, "rb");
+        if (!f)
+            return;
+    }
     fseek(f, 0, SEEK_END);
     n = ftell(f);
     fseek(f, 0, SEEK_SET);

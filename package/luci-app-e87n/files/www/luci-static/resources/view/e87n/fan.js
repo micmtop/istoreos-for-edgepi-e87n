@@ -55,7 +55,7 @@ return view.extend({
         modeRow.appendChild(el('label', '模式', { class: 'cbi-value-title' }));
         var modeWrap = el('div', null, { class: 'cbi-value-field' });
         var modeSel = el('select', null, { id: 'fan-mode' });
-        [['auto', '自动（按温度曲线）'], ['manual', '手动'], ['off', '关闭']].forEach(function (o) {
+        [['auto', '自动'], ['manual', '手动'], ['off', '关闭']].forEach(function (o) {
             var opt = el('option', o[1]);
             opt.value = o[0];
             modeSel.appendChild(opt);
@@ -92,7 +92,7 @@ return view.extend({
 
         /* ---------- 温控曲线（平面直角坐标系） ---------- */
         var curveCard = el('div', null, { class: 'cbi-section cbi-section-node' });
-        curveCard.appendChild(el('h3', '温控曲线（温度 ℃ → 风速 %）'));
+        curveCard.appendChild(el('h3', '温控曲线'));
         curveCard.appendChild(el('div', '点击坐标添加控制点，拖动移动，双击删除。保存后实时生效。',
             { class: 'cbi-value-description' }));
 
@@ -263,8 +263,8 @@ return view.extend({
                 var pct = (s.pwm_pct !== undefined && s.pwm_pct !== null) ? s.pwm_pct + ' %' : '--';
                 var lines = [
                     '温度: ' + s.temp + ' ℃',
-                    '当前风速: ' + pct + '（PWM ' + s.pwm + '）',
-                    '模式: ' + mode + (s.fan.running ? '（服务运行中）' : '（服务已停止）')
+                    '当前风速: ' + pct,
+                    '模式: ' + mode + (s.fan.running ? ' · 运行中' : ' · 已停止')
                 ];
                 statLines.innerHTML = '';
                 lines.forEach(function (t) { statLines.appendChild(el('div', t)); });

@@ -22,6 +22,85 @@ typedef enum {
     SCREEN_ARC,     // 圆弧状态 (Screen4)
 } screen_type_t;
 
+/* ---------------- 中文字体 ----------------
+ * 生成出来的界面用的是预烘焙字体（只含 ℃下载上传未连接内存温度磁盘 等几十个
+ * 汉字），换任何别的中文就是方框。这里在运行期加载一份完整 GB2312 子集字体
+ * （随固件装在 /usr/share/e87n/font.ttf），凡是带中文的 label 都换成它，
+ * ASCII 数字仍保留原来的 Montserrat 观感。
+ */
+static void *g_cjk_data;
+static lv_font_t *g_cjk_font;
+
+static const char *cjk_font_path(char *buf, size_t n)
+{
+    const char *env = getenv("E87N_FONT");
+    if (env && access(env, R_OK) == 0)
+        return env;
+    if (access("/usr/share/e87n/font.ttf", R_OK) == 0)
+        return "/usr/share/e87n/font.ttf";
+    return NULL;
+}
+
+static void load_cjk_font(void)
+{
+    char path[512];
+    const char *p = cjk_font_path(path, sizeof(path));
+    FILE *f;
+    long n;
+
+    if (!p)
+        return;
+    f = fopen(p, "rb");
+    if (!f)
+        return;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (n <= 0 || n > 8 * 1024 * 1024) {
+        fclose(f);
+        return;
+    }
+    g_cjk_data = malloc((size_t)n);
+    if (!g_cjk_data || fread(g_cjk_data, 1, (size_t)n, f) != (size_t)n) {
+        fclose(f);
+        free(g_cjk_data);
+        g_cjk_data = NULL;
+        return;
+    }
+    fclose(f);
+    g_cjk_font = lv_tiny_ttf_create_data(g_cjk_data, (size_t)n, 16);
+    printf("[display] cjk font: %s (%ld bytes)\n", p, n);
+}
+
+static int text_has_cjk(const char *t)
+{
+    const unsigned char *p = (const unsigned char *)t;
+    if (!t)
+        return 0;
+    while (*p) {
+        if (*p & 0x80)
+            return 1;
+        p++;
+    }
+    return 0;
+}
+
+static void apply_cjk_fonts(lv_obj_t *obj)
+{
+    uint32_t i, n;
+
+    if (!obj || !g_cjk_font)
+        return;
+    if (lv_obj_check_type(obj, &lv_label_class)) {
+        const char *t = lv_label_get_text(obj);
+        if (text_has_cjk(t))
+            lv_obj_set_style_text_font(obj, g_cjk_font, 0);
+    }
+    n = lv_obj_get_child_count(obj);
+    for (i = 0; i < n; i++)
+        apply_cjk_fonts(lv_obj_get_child(obj, i));
+}
+
 static lv_display_t *get_display(void)
 {
     lv_display_t *disp;
@@ -185,12 +264,21 @@ int main(int argc, char **argv) {
     }
 
     lv_init();
+    load_cjk_font();
     lv_display_t *disp = get_display();
     if (disp == NULL) {
         printf("Failed to init display\n");
         return 1;
     }
     lv_disp_set_default(disp);
+    if (g_cjk_font) {
+        /* 默认主题字体也用 CJK 字体：新建控件（含运行期动态文本）不会缺字 */
+        lv_theme_t *th = lv_theme_default_init(disp,
+                              lv_palette_main(LV_PALETTE_BLUE),
+                              lv_palette_main(LV_PALETTE_RED),
+                              1, g_cjk_font);
+        lv_display_set_theme(disp, th);
+    }
 
     // 初始化数据管理器
     if (data_manager_init() != 0) {
@@ -202,6 +290,13 @@ int main(int argc, char **argv) {
     ui_refresher_init();
 
     ui_init();
+    if (g_cjk_font) {
+        extern lv_obj_t *ui_Screen1, *ui_Screen2, *ui_Screen3, *ui_Screen4;
+        apply_cjk_fonts(ui_Screen1);
+        apply_cjk_fonts(ui_Screen2);
+        apply_cjk_fonts(ui_Screen3);
+        apply_cjk_fonts(ui_Screen4);
+    }
     apply_custom_text(custom_text);
 
     // 进入目标屏幕（cycle 模式从 Screen1 开始轮播）

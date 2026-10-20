@@ -71,3 +71,18 @@ target_link_libraries(${PRJ_MAIN}
                               pthread)
 
 install(TARGETS ${PRJ_MAIN} RUNTIME DESTINATION bin)
+
+# ---- 内置演示主题 aurora（源码由 Makefile 从仓库 themes/aurora 拷到 themes/）----
+# 注意：不要拷 aurora 自带的 lv_conf.h，必须复用本工程这一份，
+# 否则和已编译的 liblvgl 配置不一致会出内存问题。
+if(EXISTS ${PROJECT_SOURCE_DIR}/themes/aurora/main.c)
+    add_executable(aurora
+        ${PROJECT_SOURCE_DIR}/themes/aurora/main.c
+        ${PROJECT_SOURCE_DIR}/themes/aurora/e87n_metrics.c)
+    target_include_directories(aurora PRIVATE
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/lib
+        ${PROJECT_SOURCE_DIR}/lib/lvgl
+        ${PROJECT_SOURCE_DIR}/themes/aurora)
+    target_link_libraries(aurora lvgl m pthread)
+endif()

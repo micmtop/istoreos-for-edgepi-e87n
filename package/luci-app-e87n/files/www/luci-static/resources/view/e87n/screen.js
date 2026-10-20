@@ -145,7 +145,7 @@ return view.extend({
 
         /* ---------- 主题管理 ---------- */
         var thCard = el('div', null, { class: 'cbi-section cbi-section-node' });
-        thCard.appendChild(el('h3', '主题（导入后自动出现在上面的"显示页面"里）'));
+        thCard.appendChild(el('h3', '主题'));
 
         var thRow = el('div', null, { class: 'cbi-value' });
         thRow.appendChild(el('label', '主题包', { class: 'cbi-value-title' }));
@@ -163,8 +163,8 @@ return view.extend({
         var thList = el('div', null, { id: 'th-list' });
         thCard.appendChild(thList);
         thCard.appendChild(el('div',
-            '主题包 = tar.gz：theme.json（name）+ app（aarch64 ELF）或 frame.raw（428x142 RGB565）。' +
-            'ELF 里可用 /var/run/e87n/metrics.json 或 ubus call e87n status 读温度/网速。',
+            '主题包是 tar.gz，里面放 theme.json，再放 app 或 frame.raw 其中一个。' +
+            'app 用 aarch64 ELF，可读 metrics.json 拿温度网速；frame.raw 是 428x142 的 RGB565 整帧。',
             { class: 'cbi-value-description' }));
         root.appendChild(thCard);
 
@@ -185,7 +185,7 @@ return view.extend({
                 /* 重建主题列表 */
                 while (thList.firstChild) { thList.removeChild(thList.firstChild); }
                 if (themes.length === 0) {
-                    thList.appendChild(el('div', '（还没有导入主题）', { class: 'cbi-value-description' }));
+                    thList.appendChild(el('div', '还没有导入主题', { class: 'cbi-value-description' }));
                 }
                 themes.forEach(function (t) {
                     var row = el('div', null, { class: 'cbi-value' });
@@ -241,13 +241,12 @@ return view.extend({
                     try {
                         var rj = JSON.parse(x.responseText);
                         if (rj && rj.ok) {
-                            thMsg.textContent = '导入成功：' + rj.name + '（id=' + rj.id + '，type=' + rj.type +
-                                '），已加入"显示页面"列表';
+                            thMsg.textContent = '导入成功：' + rj.name;
                             loadThemes();
                         } else {
                             thMsg.textContent = '导入失败：' + ((rj && rj.err) || x.responseText);
                         }
-                    } catch (e) { thMsg.textContent = '导入失败（HTTP ' + x.status + '）'; }
+                    } catch (e) { thMsg.textContent = '导入失败 HTTP ' + x.status; }
                 }
             };
             x.send(file);
@@ -255,7 +254,7 @@ return view.extend({
 
         /* ---------- 导入自定义图片 ---------- */
         var impCard = el('div', null, { class: 'cbi-section cbi-section-node' });
-        impCard.appendChild(el('h3', '导入自定义画面（图片 → 屏幕）'));
+        impCard.appendChild(el('h3', '导入自定义画面'));
         var impRow = el('div', null, { class: 'cbi-value' });
         impRow.appendChild(el('label', '选择图片', { class: 'cbi-value-title' }));
         var impWrap = el('div', null, { class: 'cbi-value-field' });
@@ -302,7 +301,7 @@ return view.extend({
                             if (x.status === 200) {
                                 try {
                                     var rj = JSON.parse(x.responseText);
-                                    impMsg.textContent = (rj && rj.ok) ? '导入成功（' + rj.size + ' 字节）' : ('导入失败: ' + (rj && rj.err || x.responseText));
+                                    impMsg.textContent = (rj && rj.ok) ? '导入成功' : ('导入失败: ' + (rj && rj.err || x.responseText));
                                 } catch (e) { impMsg.textContent = '导入失败'; }
                             } else { impMsg.textContent = 'HTTP ' + x.status; }
                             setTimeout(loadPreview, 500);

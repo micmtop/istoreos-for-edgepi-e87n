@@ -1,0 +1,17 @@
+#!/bin/sh
+# 把随固件的内置主题播种到 overlay。
+# 主题原来只放 /etc/e87n-display/themes（overlay），sysupgrade 一刷就没了；
+# 现在 app/theme.json 装在只读的 /usr/share/e87n/themes，首次启动复制过来，
+# 用户自己导入的主题不受影响（已存在就跳过）。
+SRC=/usr/share/e87n/themes
+DST=/etc/e87n-display/themes
+
+[ -d "$SRC" ] || exit 0
+mkdir -p "$DST"
+for d in "$SRC"/*; do
+    [ -d "$d" ] || continue
+    id=${d##*/}
+    [ -d "$DST/$id" ] && continue
+    cp -r "$d" "$DST/$id" 2>/dev/null && echo "e87n: seeded built-in theme $id"
+done
+exit 0

@@ -30,6 +30,13 @@ define Build/Prepare
 	$(CP) -r ./src/. $(PKG_BUILD_DIR)/
 	# 清理 macOS 元数据（如有）
 	find $(PKG_BUILD_DIR) -name .DS_Store -delete 2>/dev/null || true
+	# 演示主题源码：仓库根的 themes/aurora（只拷源码，不拷它自己的 lv_conf.h）
+	if [ -f $(TOPDIR)/../themes/aurora/main.c ]; then \
+		$(INSTALL_DIR) $(PKG_BUILD_DIR)/themes/aurora; \
+		for f in main.c e87n_metrics.c e87n_metrics.h; do \
+			$(CP) $(TOPDIR)/../themes/aurora/$$f $(PKG_BUILD_DIR)/themes/aurora/; \
+		done; \
+	fi
 endef
 
 define Package/e87n-display/install
@@ -39,6 +46,19 @@ define Package/e87n-display/install
 	$(INSTALL_BIN) ./files/e87n-display.init $(1)/etc/init.d/e87n-display
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) ./files/e87n-display.config $(1)/etc/config/e87n-display
+	# 中文点阵字体（GB2312 子集，运行期用 tiny_ttf 加载）：
+	# 内置界面和自定义主题都读它，换主题/删主题都不会缺字
+	$(INSTALL_DIR) $(1)/usr/share/e87n
+	$(INSTALL_DATA) ./files/usr/share/e87n/font.ttf $(1)/usr/share/e87n/font.ttf
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) ./files/etc/uci-defaults/95-e87n-theme-seed $(1)/etc/uci-defaults/95-e87n-theme-seed
+	# 内置演示主题：装在只读分区（/usr/share），首次启动由 uci-defaults 播种到
+	# /etc/e87n-display/themes/，这样刷机后主题不会消失
+	if [ -f $(PKG_BUILD_DIR)/bin/aurora ]; then \
+		$(INSTALL_DIR) $(1)/usr/share/e87n/themes/aurora; \
+		$(INSTALL_BIN) $(PKG_BUILD_DIR)/bin/aurora $(1)/usr/share/e87n/themes/aurora/app; \
+		$(INSTALL_DATA) $(TOPDIR)/../themes/aurora/theme.json $(1)/usr/share/e87n/themes/aurora/theme.json; \
+	fi
 endef
 
 $(eval $(call BuildPackage,e87n-display))
