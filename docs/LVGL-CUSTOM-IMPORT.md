@@ -182,10 +182,29 @@ e87n-theme install mytheme.tar.gz
 
 ---
 
-### 2.5 中文显示（字体打包）
+### 2.5 中文显示（用系统字体，一般不用自己打包）
+
+固件里自带一份完整 GB2312 子集字体：**`/usr/share/e87n/font.ttf`**（1.2 MB，
+装在只读分区，刷机不会丢）。内置界面已经把带中文的 label 自动切到这份字体，
+自定义主题也建议直接用它：
+
+```c
+/* 优先用主题自带的 font.ttf（同目录），没有再回退系统字体 */
+snprintf(path, sizeof(path), "%.*s/font.ttf", (int)(strrchr(argv0, '/') - argv0), argv0);
+if (!(f = fopen(path, "rb"))) {
+    const char *env = getenv("E87N_FONT");
+    snprintf(path, sizeof(path), "%s", env ? env : "/usr/share/e87n/font.ttf");
+    f = fopen(path, "rb");
+}
+```
+
+- 需要别的字体/字形时再自己裁子集打包（下面 2.6 的做法），不必默认塞 1.2 MB。
+- 只要几个字的话，`pyftsubset --text=在线临渊羡鱼` 生成几十 KB 的极小字体也够。
+
+### 2.6 自己裁一份字体（可选）
 
 内置的 `lv_font_source_han_sans_sc_16_cjk` 只带 1338 个常用字，`临渊羡鱼`、`在线`
-这类字会显示成方框。要显示完整中文，把字体裁好塞进主题包：
+这类字会显示成方框。没有系统字体可用（或要换字形）时，自己裁一份塞进主题包：
 
 ```sh
 # 1) 裁一个覆盖 GB2312 全集的子集（7542 字，约 1.2 MB）

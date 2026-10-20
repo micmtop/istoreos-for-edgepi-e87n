@@ -33,8 +33,9 @@
   （`firewall` 默认 `flow_offloading=1`、`flow_offloading_hw=1`）
 - **风扇**：`fan-control` 温度→占空比曲线（百分比可调，LuCI 画布拖拽）
 - **屏幕**：内核 `fb_nv3007`（fbtft）+ 用户态 `e87n-display`（LVGL 9.4），
-  4 个内置页面 + 轮播，支持**导入自定义主题**（主题可自带 CJK 字体，
-  见 `docs/LVGL-CUSTOM-IMPORT.md` 2.5）
+  4 个内置页面 + 轮播，支持**导入自定义主题**
+- **中文**：固件自带 `/usr/share/e87n/font.ttf`（GB2312 子集），内置界面和主题
+  都从它取字形，不再出现方框；主题包不必再自带字体
 - **指标接口**：`/var/run/e87n/metrics.json` 每秒刷新，另有 `ubus call e87n status`
 - **每日一言**：`e87n-saying` 从 uapis.cn 取句并缓存，离线时用内置兜底句
 
@@ -118,8 +119,9 @@ uci commit e87n-display && /etc/init.d/e87n-display restart
 ```
 
 参考实现：`themes/aurora/`（暗色 + 琥珀色数字 + 分段电平条 + 扫描线，显示时间、
-温度、上下行、IP、在线数、每日一言）。它自带 `font.ttf`（GB2312 子集，1.2 MB），
-通过 `lv_tiny_ttf` 加载，所以「临渊羡鱼」「在线」这类字不会变成方框。
+温度、上下行、IP、在线数、每日一言）。它**内置在固件里**：app 由固件构建过程
+一起交叉编译，装到 `/usr/share/e87n/themes/aurora/`，首次启动由 uci-defaults
+播种到 overlay，所以刷机后不会消失。字体直接用系统字体。
 
 ### 指标接口（给自定义程序）
 
