@@ -95,17 +95,6 @@ sh tools/acceptance.sh
 检查 overlay、eMMC 分区、两个 PHY 的绑定、HNAT 和 flow offload、风扇是否跟随曲线、
 LED、USB、两个 PCIe 控制器、屏幕、商店和网络向导。当前版本 45 项全过。
 
-## 已知限制
-
-WAN 没做端到端验证。测试环境没有外网线路，`wan_ip` 为空，PPPoE 和 VLAN 1150
-等有线路时再验。
-
-两个 M.2 槽位没插卡，只能看到 `link down`。
-
-本机 eMMC factory 分区全 0，没有出厂 MAC，系统随机分配并固定。
-
-背光是 GPIO524 直控，低电平点亮，没有走 `/sys/class/backlight`。
-
 ## 目录
 
 ```
