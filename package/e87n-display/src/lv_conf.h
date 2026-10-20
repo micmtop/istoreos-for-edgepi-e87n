@@ -15,6 +15,8 @@
 #if 1 /* Set this to "1" to enable content */
 
 #ifndef LV_CONF_H
+/* 与 src/lib/lv_conf.h 保持同步。LVGL 编译时实际读的是 lib/lv_conf.h，
+ * 这份是给外部工具/语法检查用的备份。 */
 #define LV_CONF_H
 
 /* If you need to include anything here, do it inside the `__ASSEMBLY__` guard */

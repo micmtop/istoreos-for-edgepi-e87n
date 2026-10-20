@@ -15,6 +15,8 @@
 #if 1 /* Set this to "1" to enable content */
 
 #ifndef LV_CONF_H
+/* 注意：LVGL 的 lv_conf_internal.h 用 ../../lv_conf.h 相对路径找配置，
+ * 实际生效的是本文件（src/lib/lv_conf.h），不是 src/lv_conf.h。改配置改这里。 */
 #define LV_CONF_H
 
 /* If you need to include anything here, do it inside the `__ASSEMBLY__` guard */
@@ -982,10 +984,10 @@
 #endif
 
 /** Built-in TTF decoder */
-#define LV_USE_TINY_TTF 0
+#define LV_USE_TINY_TTF 1
 #if LV_USE_TINY_TTF
     /* Enable loading TTF data from files */
-    #define LV_TINY_TTF_FILE_SUPPORT 0
+    #define LV_TINY_TTF_FILE_SUPPORT 0  /* 用 create_data，自己读文件 */
     #define LV_TINY_TTF_CACHE_GLYPH_CNT 128
     #define LV_TINY_TTF_CACHE_KERNING_CNT 256
 #endif

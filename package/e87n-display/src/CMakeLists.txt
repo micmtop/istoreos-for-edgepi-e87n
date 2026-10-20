@@ -61,6 +61,8 @@ target_include_directories(${PRJ_MAIN} PRIVATE
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/lib
 )
+# usleep/localtime_r 需要 _DEFAULT_SOURCE，否则只有隐式声明告警
+target_compile_definitions(${PRJ_MAIN} PRIVATE _DEFAULT_SOURCE)
 target_link_libraries(${PRJ_MAIN}
                               lvgl
                               ui
@@ -84,5 +86,6 @@ if(EXISTS ${PROJECT_SOURCE_DIR}/themes/aurora/main.c)
         ${PROJECT_SOURCE_DIR}/lib
         ${PROJECT_SOURCE_DIR}/lib/lvgl
         ${PROJECT_SOURCE_DIR}/themes/aurora)
+    target_compile_definitions(aurora PRIVATE _DEFAULT_SOURCE)
     target_link_libraries(aurora lvgl m pthread)
 endif()
