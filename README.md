@@ -56,6 +56,58 @@ gh workflow run publish.yml -R micmtop/istoreos-for-edgepi-e87n -f run_id=<run i
 sh tools/check-dts.sh
 ```
 
+## 本地构建
+
+本机需要 Linux 或 WSL2。WSL 里把仓库放在 `/home` 下，不要放 `/mnt/c`，
+否则编译慢，还可能因为权限和大小写问题失败。磁盘留 30 GB，内存 16 GB 以下把 `-j` 调小。
+
+```bash
+# 1. 依赖，Debian 或 Ubuntu
+sudo apt install build-essential clang flex bison g++ gawk gcc-multilib   g++-multilib gettext git libncurses-dev libssl-dev python3-distutils   python3-setuptools rsync unzip zlib1g-dev file wget qemu-utils libelf-dev   jq ccache
+
+# 2. 拉仓库和 iStoreOS 源码，源码要放在仓库里的 istoreos/
+git clone https://github.com/micmtop/istoreos-for-edgepi-e87n.git e87n
+cd e87n
+git clone -b istoreos-25.12 --depth 1 https://github.com/istoreos/istoreos.git istoreos
+
+# 3. 加两个 Linkease feed，商店和网络向导来自这里
+cd istoreos
+printf 'src-git nas https://github.com/linkease/nas-packages.git;linkeasefull\n' >> feeds.conf.default
+printf 'src-git nas_luci https://github.com/linkease/nas-packages-luci.git;main\n' >> feeds.conf.default
+./scripts/feeds update -a
+./scripts/feeds install -a
+cd ..
+
+# 4. 打补丁、套配置。apply.sh 负责设备树、内核补丁和自定义软件包
+bash apply.sh
+cd istoreos
+cp ../e87n.config .config
+make defconfig
+
+# 5. 编译。8 核首次约 45 分钟
+make CCACHE=y -j$(nproc)
+```
+
+产物在 `istoreos/bin/targets/mediatek/filogic/`，文件名是
+`istoreos-mediatek-filogic-edgepi_e87n-squashfs-sysupgrade.bin`。
+
+只改内核不刷整机时，编到内核 FIT 就够：
+
+```bash
+make CCACHE=y -j$(nproc) target/linux/prepare
+make CCACHE=y -j$(nproc) target/linux/compile
+make CCACHE=y -j$(nproc) target/linux/install
+```
+
+FIT 在 `build_dir/target-*/linux-mediatek_filogic/edgepi_e87n-kernel.bin`。
+
+`make defconfig` 不会报错，但依赖不满足的包会被直接丢掉。改过 `e87n.config` 后先确认
+这几个还在 `.config` 里：
+
+```bash
+grep -E 'PACKAGE_(luci-app-store|luci-app-quickstart|quickstart)=y' .config
+```
+
 ## 刷机
 
 Release 里有两个文件：`squashfs-sysupgrade.bin` 是整机升级包，
