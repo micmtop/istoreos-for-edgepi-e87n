@@ -1,0 +1,23 @@
+#!/bin/sh /etc/rc.common
+# 记录异常重启：正常关机时由 stop() 清掉标记，下次启动发现标记还在，
+# 就说明上一次是断电或看门狗复位（内核没来得及正常关机）。
+START=99
+STOP=01
+
+FLAG=/etc/e87n/.booted
+LOG=/etc/e87n/reboots.log
+
+start() {
+	mkdir -p /etc/e87n
+	if [ -f "$FLAG" ]; then
+		echo "$(date '+%F %T') 异常重启：上次没有走正常关机, kernel=$(uname -r)" >> "$LOG"
+	fi
+	echo "$(date '+%F %T') 启动, kernel=$(uname -r)" >> "$LOG"
+	touch "$FLAG"
+	# 只留最近 50 行
+	tail -n 50 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+}
+
+stop() {
+	rm -f "$FLAG"
+}

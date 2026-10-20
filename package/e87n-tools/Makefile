@@ -47,6 +47,9 @@ define Package/e87n-tools/install
 		./files/etc/init.d/screen \
 		$(1)/etc/init.d/screen
 	$(INSTALL_BIN) \
+		./files/etc/init.d/bootlog \
+		$(1)/etc/init.d/bootlog
+	$(INSTALL_BIN) \
 		./files/etc/uci-defaults/99-e87n-hnat \
 		$(1)/etc/uci-defaults/99-e87n-hnat
 	$(INSTALL_BIN) \
