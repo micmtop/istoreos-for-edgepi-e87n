@@ -135,9 +135,11 @@ do_run() {
                 ;;
             *)  # auto
                 new_pwm=$(calc_pwm "$t_c" "$pwm_max")
-                # 滞回：温度下探时，只有降到 (last_temp - hysteresis) 以下才允许降档
+                # 滞回：温度下探时，只有比“上次改档时的温度”低 hysteresis 以上才允许降档。
+                # 注意 last_temp 只能在真正改档时更新；每轮都更新会让
+                # t_c >= last_temp - hysteresis 恒成立，风扇就永远降不下来。
                 if [ -n "$last_pwm" ] && [ "$new_pwm" -lt "$last_pwm" ]; then
-                    if [ -n "$last_temp" ] && [ "$t_c" -ge $((last_temp - hysteresis)) ]; then
+                    if [ -n "$last_temp" ] && [ "$t_c" -gt $((last_temp - hysteresis)) ]; then
                         new_pwm=$last_pwm
                     fi
                 fi
@@ -151,6 +153,7 @@ do_run() {
         if [ "$set_pwm" = "1" ] && [ "$new_pwm" != "$last_pwm" ]; then
             echo "$new_pwm" > "$pwm_path" 2>/dev/null
             logger -t fan-control "temp=${t_c}C -> pwm=${new_pwm} (mode=$mode)"
+            last_temp=$t_c        # 只在这里记温度，滞回才有参照
         fi
 
         # 回读校验：pwm 被别的驱动（例如内核 thermal governor 把 fan 当
@@ -163,7 +166,6 @@ do_run() {
         fi
 
         last_pwm=$new_pwm
-        last_temp=$t_c
         sleep "$interval"
     done
 }
@@ -182,6 +184,12 @@ stop() {
     kill "$(cat "$PIDFILE")" 2>/dev/null
     rm -f "$PIDFILE"
     echo "fan-control stopped"
+}
+
+restart() {
+    stop
+    sleep 1
+    start
 }
 
 reload() {

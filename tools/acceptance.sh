@@ -99,7 +99,8 @@ if [ "$FAN_MODE" = "auto" ] && [ -x /usr/sbin/fan-control ] && [ -n "$FAN_PWM" ]
     EXP=$(/usr/sbin/fan-control calc "$TC" 2>/dev/null)
     if [ -n "$EXP" ]; then
         DIFF=$(( FAN_PWM - EXP )); [ "$DIFF" -lt 0 ] && DIFF=$(( -DIFF ))
-        if [ "$DIFF" -le 12 ]; then
+        # 滞回会让 pwm 最多停在比曲线高一个带宽（3℃ 约 18 PWM），容差取 25
+        if [ "$DIFF" -le 25 ]; then
             ok "风扇跟随曲线：${TC}°C 期望 pwm=$EXP，实际 $FAN_PWM"
         else
             bad "风扇未跟随曲线：${TC}°C 期望 pwm=$EXP，实际 $FAN_PWM（内核 thermal 是否又在抢控制？）"
