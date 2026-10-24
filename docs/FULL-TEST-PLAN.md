@@ -8,20 +8,25 @@
 设备上是 busybox：没有 `od`、`pkill`、`timeout`，分别用 `hexdump`、`killall`、后台任务替代。
 固件里也没有 `ethtool`、`iperf3`、`nstat`，相关用例给出了替代做法（sysfs、`nc`、`ip -s`）。
 
-## 开始前必读：持久化缺陷
+## 部署前必做
 
-截至 2026-10-24，这台机器上 overlay 不跨重启保留：`uci commit`、写在 `/etc` 的文件、
-SSH 密钥，重启后全部回到默认。已用 6 组实验确认，断电重启也一样。
+按顺序过一遍，任何一条不过就别部署。
 
-因此：
+| 序号 | 检查 | 命令 / 做法 | 通过标准 |
+|---|---|---|---|
+| 1 | overlay 在独立分区 | `grep ' /overlay ' /proc/mounts` | `/dev/mmcblk0p6 ext4`；新机先跑 `e87n-prep-overlay` 再重启 |
+| 2 | 配置真的持久 | 改一个 uci 值、写个文件，`sync`，重启 | 值还在、文件还在、SSH 主机密钥不变 |
+| 3 | 断电也持久 | `poweroff`，拔电源等 10 秒再上电 | 同上 |
+| 4 | 风扇跟随曲线 | `fan-control calc <温度>` 与 `pwm1` 对比 | 差值在 25 以内 |
+| 5 | 网口灯 | 不插线观察 RJ45 座子里的灯 | 不亮；插线才亮 |
+| 6 | 屏幕中文 | 抓帧或直接看屏 | 无方框，页面方向正确 |
+| 7 | 商店与向导 | `apk list -I \| grep -E "luci-app-store\|quickstart"` | 都在，`quickstart` 进程在跑 |
+| 8 | 主题 | `e87n-theme list` | 至少含 aurora |
+| 9 | U 盘只读 | `mount -o ro /dev/sda1 /mnt/usb` | 挂得上，`/proc/mounts` 里是 `ro`，`/sys/block/sda/stat` 写扇区保持 0 |
+| 10 | 自检 | `sh tools/acceptance.sh` | 全部 PASS |
 
-- A8（重启）、P1~P5（升级回滚）、Q6（反复重启）现在必然是 `FAIL`，不要当成新问题开单。
-- 任何依赖"改完配置重启还生效"的用例，先记 `BLOCKED`，等修好再跑。
-- 只读类、单次会话内的用例（硬件、网口、屏幕、风扇、USB 只读、HNAT 观测）可以正常跑。
-
-已确认不是 eMMC 坏：往 p2 和 p5 的 300 MB、3 GB、7 GB 位置裸写并 `fsync`，重启后数据都在。
-文件系统层的写入也到了设备（写 32 MB 后设备前 64 MB 的内容确实变了），但重启后 f2fs
-回退到旧状态。详见分析记录。
+没有 p6 的机器会退回旧的 loop overlay：能启动，但配置不持久。这类机器要先跑
+`e87n-prep-overlay`（见 `docs/OVERLAY.md`）。
 
 ## 硬性约束
 
@@ -164,6 +169,18 @@ F4 的做法：在设备上起一个转发流不方便，改用真实路径：PC
 ## I USB（只读）
 
 U 盘已插。**只允许读**。
+
+固件必须有 `kmod-fs-vfat`（FAT32）、`kmod-fs-exfat`、`kmod-nls-cp437`、`kmod-nls-utf8`，
+否则 `mount` 报 `unknown filesystem type 'vfat'`。这是实测踩过的坑，缺模块算固件问题，记 `FAIL`。
+
+挂不上时仍可做裸读测试（不依赖文件系统）：
+
+```sh
+dd if=/dev/sda of=/dev/null bs=1M count=256      # 顺序读，记录 MB/s
+awk '{print $5}' /sys/block/sda/stat            # 写扇区数，全程必须为 0
+```
+
+实测参考（HIKSEMI 62.9 GB，FAT32）：裸读约 49 MB/s，写扇区计数始终 0。
 
 允许的命令：
 
@@ -344,12 +361,8 @@ Q1、Q2 需要长时间，agent 至少要跑 2 小时并在报告里写明实际
 
 ## 当前固件的已知偏差
 
-这些不是新问题，报告里注明即可，不要重复开单：
-
 | 现象 | 原因 | 状态 |
 |---|---|---|
-| 老固件上风扇被钉在 4%~12% | DTS 里 fan 挂了 cooling-map，内核 governor 覆盖用户态 PWM | 新固件已删那三条 map；老固件可用 `/etc/init.d/fan-guard` 兜底 |
-| 网口灯没插线也亮 | 6.12 的 2.5G PHY 驱动重新打开了 LED 极性位 | 新固件补丁 `795` 已修 |
-| 演示主题刷机后消失 | 主题原本只在 overlay | 新固件装到只读分区，并由 uci-defaults 播种 |
-| 内置页面缺字 | 生成字体只有几十个汉字 | 新固件改用 `/usr/share/e87n/font.ttf` 运行期加载 |
-| factory 分区全 0，MAC 随机 | 本机没有出厂数据 | 正常现象 |
+| 没有 p6 的机器配置不持久 | overlay 仍在 p5 尾部的 loop 上 | 跑 `e87n-prep-overlay` 后重启即可 |
+| FAT32 的 U 盘挂不上 | 镜像缺 `kmod-fs-vfat` 等模块 | 已加入配置，下一版构建带上 |
+| 空载时 SoC 50~60 ℃、外壳温热 | 无风扇直吹的金属壳，属于正常 | 曲线在 75 ℃ 给满速 |
