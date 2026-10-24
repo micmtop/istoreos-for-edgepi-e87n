@@ -31,11 +31,17 @@ define Build/Prepare
 	# 清理 macOS 元数据（如有）
 	find $(PKG_BUILD_DIR) -name .DS_Store -delete 2>/dev/null || true
 	# 演示主题源码：仓库根的 themes/aurora（只拷源码，不拷它自己的 lv_conf.h）
+	# 注意：这里用显式文件列表，不要写成 for 循环 + $$f。
+	# Makefile 经过递归 make 时会二次展开，$$f 变空导致拷贝整个目录。
 	if [ -f $(TOPDIR)/../themes/aurora/main.c ]; then \
 		$(INSTALL_DIR) $(PKG_BUILD_DIR)/themes/aurora; \
-		for f in main.c e87n_metrics.c e87n_metrics.h; do \
-			$(CP) $(TOPDIR)/../themes/aurora/$$f $(PKG_BUILD_DIR)/themes/aurora/; \
-		done; \
+		$(CP) $(TOPDIR)/../themes/aurora/main.c \
+		      $(TOPDIR)/../themes/aurora/e87n_metrics.c \
+		      $(TOPDIR)/../themes/aurora/e87n_metrics.h \
+		      $(PKG_BUILD_DIR)/themes/aurora/; \
+		echo "theme sources:"; ls $(PKG_BUILD_DIR)/themes/aurora/; \
+	else \
+		echo "FATAL: $(TOPDIR)/../themes/aurora/main.c missing"; exit 1; \
 	fi
 endef
 

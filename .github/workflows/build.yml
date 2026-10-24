@@ -243,6 +243,19 @@ jobs:
             exit 1
           fi
 
+      - name: Gate - built-in demo theme must be in the package
+        # 主题靠 e87n-display 的 Build/Prepare 从仓库 themes/aurora 拷源码再交叉编译。
+        # 拷贝命令被 make 二次展开吃掉过一次，结果固件里没有主题，这里硬门禁。
+        run: |
+          cd build/istoreos
+          APP=$(ls build_dir/target-*/e87n-display/ipkg-*/e87n-display/usr/share/e87n/themes/aurora/app 2>/dev/null | head -1)
+          JSN=$(ls build_dir/target-*/e87n-display/ipkg-*/e87n-display/usr/share/e87n/themes/aurora/theme.json 2>/dev/null | head -1)
+          FONT=$(ls build_dir/target-*/e87n-display/ipkg-*/e87n-display/usr/share/e87n/font.ttf 2>/dev/null | head -1)
+          [ -n "$APP" ]  || { echo "FATAL: 内置主题 app 没打进包"; exit 1; }
+          [ -n "$JSN" ]  || { echo "FATAL: 内置主题 theme.json 没打进包"; exit 1; }
+          [ -n "$FONT" ] || { echo "FATAL: 系统字体没打进包"; exit 1; }
+          ls -l "$APP" "$JSN" "$FONT"
+
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         if: always()
