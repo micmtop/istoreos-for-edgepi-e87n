@@ -40,7 +40,7 @@
 | H IPv6 | PASS | br-lan 有全局地址，NDP 正常 |
 | I USB | 部分 PASS | 识别与裸读通过；挂载 FAIL（缺 vfat），已修待复测 |
 | J PCIe | PASS | 两个控制器 `okay`，空槽 link down，nvme 驱动在 |
-| K 屏幕 | PASS | `fb_nv3007` 428×142，中文字体、内置主题正常 |
+| K 屏幕 | PASS | `fb_nv3007` 428×142；四个页面截图见本目录 `k4-2/3/4.png`、`k6-page1.png`，中文（星期四、下午、内存、磁盘、下载、上传）全部正常 |
 | L 风扇 | PASS（修复后） | 温度与曲线一致，54 ℃ → pwm 135 = 期望值 |
 | M LED | 部分 | 软件 LED 正常；RJ45 座子里的 PHY 灯需人眼确认 |
 | N 服务与包 | PASS | 商店、网络向导、OTA、ddns、sqm 等都在 |
@@ -79,6 +79,20 @@ flash（`drop_caches` 后读裸设备能看到），所以不是 eMMC、不是 `
 
 修法：`e87n.config` 增加 `kmod-fs-vfat`、`kmod-fs-exfat`、`kmod-nls-cp437`、
 `kmod-nls-iso8859-1`、`kmod-nls-utf8`。复测要等新固件。
+
+## 屏幕截图证据
+
+本目录下的截图取自实机抓帧（`screen-ctl snapshot`，121552 字节 RGB565）：
+
+| 文件 | 内容 | 结论 |
+|---|---|---|
+| `k6-page1.png` | 页面 1 系统概况 | IP、下载/上传速率正常 |
+| `k4-2.png` | 页面 2 时间 | `2026-10-22`、`星期四`、`下午` 全部正常显示 |
+| `k4-3.png` | 页面 3 网速图表 | `下载`、`上传` 标签正常 |
+| `k4-4.png` | 页面 4 圆弧状态 | `CPU`、`内存`、`温度`、`磁盘` 正常 |
+
+中文字形来自 `/usr/share/e87n/font.ttf`（GB2312 子集，运行期用 tiny_ttf 加载），
+不再依赖编译期只带几十个汉字的点阵字体。
 
 ## USB 实测数据
 
