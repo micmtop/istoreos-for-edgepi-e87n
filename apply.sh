@@ -135,6 +135,17 @@ else
   echo "WARN: luci-app-e87n package not found, skipping"
 fi
 
+echo "==> [2.55/4] Install fstab pointing the overlay at /dev/mmcblk0p6"
+# overlay 走 loop + offset 的方案在这块板上不持久（重启后文件系统恢复不出来），
+# 改成独立分区 p6（ext4，GPT 名 rootfs_data）。没有 p6 的机器会 mount 失败并退回。
+if [ -f "$ROOT/files/etc/config/fstab" ]; then
+  mkdir -p "$SRC/package/base-files/files/etc/config"
+  cp -f "$ROOT/files/etc/config/fstab" "$SRC/package/base-files/files/etc/config/fstab"
+  echo "    installed fstab (extroot on /dev/mmcblk0p6)"
+else
+  echo "    WARN: files/etc/config/fstab missing"
+fi
+
 echo "==> [2.6/4] Override istoreos-boot.sh (E87N overlay fix)"
 # iStoreOS stock code uses partition 3 as overlay. On E87N, partition 3 is the
 # FIP / U-Boot partition, so the system overwrote U-Boot on every boot.

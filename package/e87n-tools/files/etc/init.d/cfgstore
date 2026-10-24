@@ -1,0 +1,66 @@
+#!/bin/sh /etc/rc.common
+# E87N 配置持久化兜底
+#
+# 背景：这台机器的 overlay（p5 剩余空间的 f2fs）不跨重启保留，fstools 每次启动
+# 都把它当首次启动处理，/etc/config 与 SSH 密钥会回到默认。eMMC 本身没问题：
+# 在 p2 上建 ext4 写文件，重启后数据还在。
+#
+# 做法：用未使用的 p2（4 MB，本机全 0）当配置仓库。开机把备份拷回 /etc，
+# 关机（K01）和定时任务把 /etc/config 与 dropbear 密钥写回去。
+# 不碰 p3（FIP/U-Boot），也不依赖 overlay。
+START=05
+STOP=01
+
+EXTRA_COMMANDS="save"
+EXTRA_HELP="	save	立刻把 /etc/config 备份到 $DEV"
+
+DEV=/dev/mmcblk0p2
+MNT=/mnt/cfg
+BK=$MNT/backup
+LABEL=e87ncfg
+
+mounted() { grep -q " $MNT " /proc/mounts; }
+
+ensure_fs() {
+	# 只有整块都是 0 才格式化，避免毁掉真实出厂数据
+	[ -b "$DEV" ] || return 1
+	if blkid -o value -s TYPE "$DEV" >/dev/null 2>&1; then
+		return 0
+	fi
+	local nz
+	nz=$(dd if="$DEV" bs=4096 count=8 2>/dev/null | tr -d '\000' | wc -c)
+	[ "$nz" -eq 0 ] || { logger -t cfgstore "$DEV 有非零数据，拒绝格式化"; return 1; }
+	mkfs.ext4 -q -FF -L "$LABEL" "$DEV" || return 1
+	logger -t cfgstore "已把 $DEV 格式化为 ext4，标签 $LABEL"
+}
+
+mount_store() {
+	ensure_fs || return 1
+	mkdir -p "$MNT"
+	mounted && return 0
+	mount "$DEV" "$MNT" 2>/dev/null || return 1
+	return 0
+}
+
+start() {
+	mount_store || { logger -t cfgstore "配置仓库不可用，跳过恢复"; return 0; }
+	[ -d "$BK/etc/config" ] || { logger -t cfgstore "仓库为空，首次启动"; return 0; }
+	mkdir -p /etc/config /etc/dropbear
+	cp -a "$BK/etc/config/." /etc/config/ 2>/dev/null
+	cp -a "$BK/etc/dropbear/." /etc/dropbear/ 2>/dev/null
+	logger -t cfgstore "已从 $DEV 恢复配置与密钥"
+}
+
+save() {
+	mount_store || return 1
+	mkdir -p "$BK/etc/config" "$BK/etc/dropbear"
+	cp -a /etc/config/. "$BK/etc/config/" 2>/dev/null
+	cp -a /etc/dropbear/. "$BK/etc/dropbear/" 2>/dev/null
+	sync
+	logger -t cfgstore "已保存配置到 $DEV"
+}
+
+stop() {
+	save
+	umount "$MNT" 2>/dev/null
+}

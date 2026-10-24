@@ -1,0 +1,20 @@
+
+config global
+	option anon_swap '0'
+	option anon_mount '0'
+	option port_mount '1'
+	option auto_swap '1'
+	option auto_mount '1'
+	option delay_root '5'
+	option check_fs '0'
+
+# E87N: overlay 放在独立的 p6（GPT 名 rootfs_data，ext4）。
+# 原来用 fstools 在 p5 尾部建 loop + f2fs 的方案，写入在重启后恢复不出来，
+# 每次启动都被当成首次启动，配置和用户数据全丢。
+# p6 是直接分区，不经过 loop，实测重启和断电都不丢数据。
+# 没有 p6 的机器上这条会 mount 失败，fstools 会退回原来的 loop 方案，不影响启动。
+config mount
+	option target '/overlay'
+	option device '/dev/mmcblk0p6'
+	option fstype 'ext4'
+	option enabled '1'
