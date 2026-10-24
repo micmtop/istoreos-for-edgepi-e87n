@@ -128,6 +128,11 @@ if [ -d "$ROOT/package/e87n-display" ]; then
 else
   echo "WARN: e87n-display package not found, skipping"
 fi
+if [ -d "$ROOT/package/e87n-gptfix" ]; then
+  cp -rf "$ROOT/package/e87n-gptfix" "$SRC/package/"
+  echo "copied e87n-gptfix package"
+fi
+
 if [ -d "$ROOT/package/luci-app-e87n" ]; then
   cp -rf "$ROOT/package/luci-app-e87n" "$SRC/package/"
   echo "copied luci-app-e87n package"

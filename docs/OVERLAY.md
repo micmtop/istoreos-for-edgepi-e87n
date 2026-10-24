@@ -54,7 +54,26 @@ config mount
 	option enabled '1'
 ```
 
-## 一次性改分区的步骤
+## 新机怎么处理
+
+刷完固件后在设备上跑一条命令，然后重启：
+
+```bash
+e87n-prep-overlay
+reboot
+```
+
+它会自动做这些事：检查 p4 仍是 FIT、用 `e87n-gptfix` 把 p5 缩到 512 MB、
+新建 p6 并命名 rootfs_data、格式化成 ext4、核对 p3 校验没变。
+重复执行是安全的（发现已有 p6 就直接退出）。
+
+`e87n-gptfix` 是自己写的小工具，因为出厂镜像的备份 GPT 是坏的，parted 会因此
+拒绝写分区表；GPT 的 CRC32 在 shell 里算不了，所以用 C 写了个助手，
+一次把主表和备份表都写对。源码在 `package/e87n-gptfix/src/gptfix.c`。
+
+下面是不用这条命令时的手工步骤，供排查用。
+
+## 手工改分区的步骤
 
 只在没做过这个改动的机器上执行一次。动之前先备份：
 

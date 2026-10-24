@@ -32,6 +32,9 @@ define Package/e87n-tools/install
 		./files/usr/sbin/fan-control \
 		$(1)/usr/sbin/fan-control
 	$(INSTALL_BIN) \
+		./files/usr/sbin/e87n-prep-overlay \
+		$(1)/usr/sbin/e87n-prep-overlay
+	$(INSTALL_BIN) \
 		./files/usr/sbin/screen-ctl \
 		$(1)/usr/sbin/screen-ctl
 	$(INSTALL_BIN) \

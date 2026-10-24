@@ -1,0 +1,48 @@
+#!/bin/sh
+# 把 overlay 挪到独立分区 p6，只需跑一次。
+#
+# 为什么要有这一步：这块板子的 overlay 原本是「p5 剩余空间里的 loop + 文件系统」，
+# 这种写法的数据在重启后恢复不出来，fstools 每次都当首次启动，配置和用户数据全丢。
+# p6 是直接分区，不经过 loop，重启和断电都不丢。
+#
+# 用法：e87n-prep-overlay          然后重启
+# 完成后 /overlay 会挂到 /dev/mmcblk0p6。
+
+set -e
+
+DEV=/dev/mmcblk0
+P5_SECTORS=${P5_SECTORS:-1048576}     # 512 MB，放 squashfs 绰绰有余
+
+[ -x /usr/sbin/e87n-gptfix ] || { echo "缺少 /usr/sbin/e87n-gptfix"; exit 1; }
+[ -b "$DEV" ] || { echo "$DEV 不存在"; exit 1; }
+
+if /usr/sbin/e87n-gptfix show "$DEV" | grep -q rootfs_data; then
+	echo "已经有 rootfs_data 分区，无需操作"
+	exit 0
+fi
+
+# 安全检查：p4 必须是 FIT（防止在奇怪的机器上动分区表）
+magic=$(head -c 4 "${DEV}p4" 2>/dev/null | hexdump -v -e '1/1 "%02x"')
+[ "$magic" = "d00dfeed" ] || { echo "p4 不是 FIT（读到 '$magic'），中止"; exit 1; }
+
+p3_before=$(sha256sum "${DEV}p3" | cut -d' ' -f1)
+echo "p3 校验（改前）: $p3_before"
+
+echo "开始改分区表：p5 缩到 $P5_SECTORS 个扇区，其余给 p6"
+/usr/sbin/e87n-gptfix prep "$DEV" "$P5_SECTORS"
+
+# 新分区的设备节点内核不一定马上建出来
+[ -e "${DEV}p6" ] || mknod "${DEV}p6" b 179 6
+sync
+
+echo "格式化 p6 为 ext4（标签 rootfs_data）"
+mkfs.ext4 -q -FF -L rootfs_data "${DEV}p6"
+
+p3_after=$(sha256sum "${DEV}p3" | cut -d' ' -f1)
+if [ "$p3_before" != "$p3_after" ]; then
+	echo "错误：p3 内容变了，立刻停止并检查！"
+	exit 1
+fi
+echo "p3 未变: $p3_after"
+echo
+echo "完成。执行 reboot，重启后 overlay 会挂到 ${DEV}p6，配置和主题就不会丢了。"
