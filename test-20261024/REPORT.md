@@ -2,17 +2,22 @@
 
 - 日期：2026-10-24
 - 设备：EdgePi E87N（MT7987A，1 GiB / 8 GB eMMC）
-- 固件：iStoreOS 25.12.6，内核 6.12.112（Release `v25.12.5-e87n-r5`）
+- 固件：iStoreOS 25.12.6，内核 6.12.112（Release `v25.12.6-e87n-r6`）
 - 执行方式：SSH 远程执行，只读用例为主；U 盘全程只读
 
 ## 结论
 
-可以部署，但要先确认两件事：
+可以部署。r6 上复测通过：
 
-1. **新机器刷完必须先跑 `e87n-prep-overlay` 再重启**，否则 overlay 仍在 p5 尾部的 loop 上，配置不持久。
-2. **FAT32 / exFAT 的 U 盘要等下一版固件**。当前这版缺 `kmod-fs-vfat`，`mount` 会报 `unknown filesystem type 'vfat'`。已加入配置，构建中。
+- U 盘 FAT32 能只读挂载，写入被正确拒绝（`Read-only file system`），写扇区计数全程不变
+- 风扇从固件里就跟随曲线，不再依赖手工替换脚本
+- sysupgrade 升级后配置保留（`hysteresis=9` 升级前后一致）
+- `e87n-prep-overlay` 在已改过分区的机器上直接提示「无需操作」，重复执行安全
 
-除此之外，硬件、网络、卸载、屏幕、风扇、服务均正常，自检 46 项全过。
+唯一要记住的一步：**新机器刷完先跑 `e87n-prep-overlay` 再重启**，否则 overlay 仍在
+p5 尾部的 loop 上，配置不持久。
+
+自检 45 项全过。
 
 ## 环境基线
 
@@ -38,7 +43,7 @@
 | F HNAT | PASS（部分） | `flow_offloading=1`、`hw=1`、`flow add @ft` 1 条、PPE 表 31 条；真实转发卸载需 WAN |
 | G 防火墙/NAT | PASS（部分） | 默认策略、端口转发规则存在；外网侧验证 BLOCKED |
 | H IPv6 | PASS | br-lan 有全局地址，NDP 正常 |
-| I USB | 部分 PASS | 识别与裸读通过；挂载 FAIL（缺 vfat），已修待复测 |
+| I USB | PASS | FAT32 只读挂载成功，写入被拒，写扇区计数不变；裸读 49.3 MB/s，经文件系统读 87.9 MB/s |
 | J PCIe | PASS | 两个控制器 `okay`，空槽 link down，nvme 驱动在 |
 | K 屏幕 | PASS | `fb_nv3007` 428×142；四个页面截图见本目录 `k4-2/3/4.png`、`k6-page1.png`，中文（星期四、下午、内存、磁盘、下载、上传）全部正常 |
 | L 风扇 | PASS（修复后） | 温度与曲线一致，54 ℃ → pwm 135 = 期望值 |
@@ -103,15 +108,23 @@ UUID `6A57-8D05`。
 |---|---|
 | 识别 | `/dev/sda` + `/dev/sda1`，`usb 2-1: 346d:5678` |
 | 驱动 | `uas`、`usb-storage` 均已注册 |
+| 文件系统 | FAT32（引导扇区 0x52 处为 `FAT32`，OEM 名 `mkdosfs`） |
+| 只读挂载 | `/dev/sda1 on /mnt/usb type vfat (ro,…)` |
+| 目录可读 | 9 个条目，`df` 正常 |
+| 经文件系统顺序读 | 60.4 MB 文件，87.9 MB/s |
 | 裸读 256 MB | 49.3 MB/s，无错误 |
-| 写扇区计数 | 全程 0（确认未写盘） |
-| 只读挂载 | FAIL，缺 vfat 模块 |
+| 随机读 8 MB | 105.5 MB/s |
+| 只读验证 | `touch` 报 `Read-only file system`（预期失败） |
+| 写扇区计数 | 全程不变（确认未写盘） |
+| 卸载 | 干净，无残留挂载 |
+
+注意：固件默认 `fstab.@global[0].auto_mount=1`，插上 U 盘会被 `block-mount` 自动挂成 **rw**。
+做只读测试前要先 `umount /mnt/usb2-1`，再 `mount -o ro`。
 
 ## 待验证
 
 | 项 | 原因 | 怎么验 |
 |---|---|---|
-| FAT32 / exFAT 挂载 | 等新固件 | `mount -o ro /dev/sda1 /mnt/usb`，`touch` 必须失败 |
 | WAN / PPPoE / VLAN 1150 | 无外网线路 | 有线路后按 E 组跑，重点看 `[HW_OFFLOAD]` 与 PPE 条目增长 |
 | HNAT 端到端吞吐 | 同上 | 开关 `flow_offloading_hw` 各测一次 nc 传输 |
 | NVMe 链路速率 | 两个 M.2 槽位没插卡 | 插盘后 `lspci`、`dd` 读盘 |
@@ -145,4 +158,6 @@ sh tools/acceptance.sh
 - `reboots.log` 里 2026-10-22 那条「异常重启」是手工拔电源做持久化测试留下的记录，
   不是故障重启。内核日志里没有任何 panic、oops 或 Call trace。
 - p3（FIP/U-Boot）全程未写，校验值 `ad1ff3c9…` 与备份一致。
+- `e87n-prep-overlay` 的幂等性已实测：在已有 p6 的机器上输出「已经有 rootfs_data 分区，无需操作」。
+- 本次升级路径：r5 → r6，`sysupgrade` 保留配置，升级后 `uci get fan.global.hysteresis` 仍为 9。
 - eMMC 健康：`pre_eol_info=0x01`（正常），`life_time=0x04`（消耗 10%~20%）。
