@@ -1,5 +1,11 @@
 name: E87N Build
 
+concurrency:
+  # 连续 push 时只保留最新一次，否则会出现多个 1.5 小时的构建同时跑。
+  # 代价：新提交会取消正在跑的旧构建（旧提交的产物本来也会被取代）。
+  group: e87n-build-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:
@@ -107,9 +113,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/istoreos/.ccache
-          key: ${{ runner.os }}-ccache-v1
+          # key 必须每次运行都不同：actions/cache 只在 key 不存在时才保存，
+          # 写死的 key 会导致缓存永远停在第一次那份，后续编译产物全部丢弃。
+          # 复靠 restore-keys 前缀命中最近一份。
+          key: ${{ runner.os }}-ccache-v2-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-ccache-
+            ${{ runner.os }}-ccache-v2-
+
+      - name: Cap ccache size for the OpenWrt build tree
+        run: |
+          mkdir -p build/istoreos/.ccache
+          CCACHE_DIR="$PWD/build/istoreos/.ccache" ccache --max-size=3G || true
+          CCACHE_DIR="$PWD/build/istoreos/.ccache" ccache -s 2>/dev/null | head -5 || true
 
       - name: Apply E87N + MT7987 support
         run: bash build/apply.sh
