@@ -29,6 +29,7 @@ define Package/e87n-tools/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/sbin $(1)/etc/uci-defaults
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd $(1)/usr/share/e87n-sdk
 	$(INSTALL_DIR) $(1)/etc/sysctl.d
+	$(INSTALL_DIR) $(1)/etc/docker
 	$(INSTALL_BIN) \
 		./files/usr/sbin/fan-control \
 		$(1)/usr/sbin/fan-control
@@ -62,6 +63,9 @@ define Package/e87n-tools/install
 	$(INSTALL_DATA) \
 		./files/etc/sysctl.d/90-e87n-net-perf.conf \
 		$(1)/etc/sysctl.d/90-e87n-net-perf.conf
+	$(INSTALL_DATA) \
+		./files/etc/docker/daemon.json \
+		$(1)/etc/docker/daemon.json
 	$(INSTALL_BIN) \
 		./files/etc/uci-defaults/97-e87n-net-defaults \
 		$(1)/etc/uci-defaults/97-e87n-net-defaults

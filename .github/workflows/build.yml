@@ -145,7 +145,18 @@ jobs:
             if grep -q "^CONFIG_PACKAGE_${s}=y" .config; then
               echo "OK   $s"
             else
-              echo "FATAL: $s 没进 .config（依赖被静默丢弃）"; miss=1
+              echo "FATAL: $s 没进 .config（依赖被静默丢弃）"
+              miss=1
+            fi
+          done
+          # Docker 依赖：defconfig 会静默丢包（store 那次教训）。
+          # 缺 veth/memcg 容器根本起不来，这里提前失败，别浪费 1.5 小时。
+          for s in dockerd containerd runc docker kmod-veth kmod-br-netfilter kmod-dummy kmod-ipt-nat iptables-nft kmod-zram zram-swap; do
+            if grep -q "^CONFIG_PACKAGE_${s}=y" .config; then
+              echo "OK   docker dep $s"
+            else
+              echo "MISS docker dep $s"
+              miss=1
             fi
           done
           [ "$miss" = "0" ] || exit 1
