@@ -28,6 +28,7 @@ endef
 define Package/e87n-tools/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/sbin $(1)/etc/uci-defaults
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd $(1)/usr/share/e87n-sdk
+	$(INSTALL_DIR) $(1)/etc/sysctl.d
 	$(INSTALL_BIN) \
 		./files/usr/sbin/fan-control \
 		$(1)/usr/sbin/fan-control
@@ -58,6 +59,9 @@ define Package/e87n-tools/install
 	$(INSTALL_BIN) \
 		./files/etc/uci-defaults/99-e87n-hnat \
 		$(1)/etc/uci-defaults/99-e87n-hnat
+	$(INSTALL_DATA) \
+		./files/etc/sysctl.d/90-e87n-net-perf.conf \
+		$(1)/etc/sysctl.d/90-e87n-net-perf.conf
 	$(INSTALL_BIN) \
 		./files/etc/uci-defaults/97-e87n-net-defaults \
 		$(1)/etc/uci-defaults/97-e87n-net-defaults
