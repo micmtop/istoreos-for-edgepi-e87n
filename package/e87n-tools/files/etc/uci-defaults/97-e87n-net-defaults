@@ -13,14 +13,13 @@ MARK=/etc/e87n/.net-defaults-applied
 [ -f "$MARK" ] && exit 0
 [ -f /etc/config/network ] || exit 0
 
-# ---- IPv6 客户端：保持 dhcpv6 客户端启用 ----
-uci set network.wan6=interface
-uci set network.wan6.device='@wan'
-uci set network.wan6.proto='dhcpv6'
-uci set network.wan6.reqaddress='try'
-uci set network.wan6.norelease='1'
-uci set network.wan6.disabled='0'
-uci -q delete network.wan6.reqprefix      # 交给协商，不写死 /60 或 /56
+# ---- IPv6 客户端 ----
+# 不要自己建 wan6！PPPoE 拨号后 netifd 会自动生成动态接口 wan_6 来处理 DHCPv6/PD。
+# 同时存在手写的 wan6 和动态的 wan_6，两个客户端抢同一条 PPPoE 会互踢，
+# 表现为 ubus error: Invalid argument + wan6 无限 teardown/setup，
+# 实测把 4 核吃到 53%（每个 teardown 要 fork 一堆 ip/ubus/jsonfilter）。
+uci set network.wan.ipv6='1'
+uci -q delete network.wan6
 
 # ---- LAN 从委派前缀里取一个 /64 ----
 uci set network.lan.ip6assign='64'

@@ -54,15 +54,17 @@ disk_pct() {
 ip4() { ip -4 addr show "$1" 2>/dev/null | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}'; }
 ip6() { ip -6 addr show "$1" scope global 2>/dev/null | awk '/inet6 /{sub(/\/.*/,"",$2); print $2; exit}'; }
 
+# 注意：这里必须先走 ip（netlink，轻量），不能用 ubus call network.interface.wan status。
+# 那个调用会让 netifd 序列化整个接口 JSON，每秒两次实测把 netifd 吃到 7.5%、ubusd 5.5%。
 wan4() {
-    v=$(ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
-    [ -n "$v" ] || v=$(ip4 pppoe-wan)
+    v=$(ip4 pppoe-wan)
+    [ -n "$v" ] || v=$(ip4 "$IFACE")
     [ -n "$v" ] || v=$(uci_get network.wan.ipaddr)
     printf '%s' "$v"
 }
 wan6() {
-    v=$(ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null)
-    [ -n "$v" ] || v=$(ip6 pppoe-wan)
+    v=$(ip6 pppoe-wan)
+    [ -n "$v" ] || v=$(ip6 "$IFACE")
     printf '%s' "$v"
 }
 
