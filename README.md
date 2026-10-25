@@ -1,10 +1,12 @@
-# EdgePi E87N · iStoreOS (这版有巨大问题别用)
+# EdgePi E87N · iStoreOS
 
 给 EdgePi E87N 路由器编译的 iStoreOS 固件。仓库里放设备树、内核补丁、软件包和 CI 配置，
 固件由 GitHub Actions 产出。
 
 当前基线 iStoreOS 25.12.5，内核 6.12.94。成品在
 [Releases](https://github.com/micmtop/istoreos-for-edgepi-e87n/releases)。
+
+<img width="4032" height="3024" alt="IMG_6757 - 副本" src="https://github.com/user-attachments/assets/69329ccd-3dcc-4879-8eab-17144be1fdf9" />
 
 ## 硬件
 
