@@ -1,0 +1,19 @@
+#!/bin/sh /etc/rc.common
+# 只允许路由器自己发 IPv6 RA，丢掉局域网里其他设备发的野 RA
+# （现场发现摄像头/旧路由会发 RA，客户端可能拿到错误的 IPv6 网关）
+START=19
+
+RULE_TABLE="bridge raguard"
+
+start() {
+	nft list table bridge raguard >/dev/null 2>&1 && nft flush table bridge raguard 2>/dev/null
+	nft add table bridge raguard 2>/dev/null || true
+	nft add chain bridge raguard input "{ type filter hook prerouting priority -300; policy accept; }" 2>/dev/null || true
+	# iifname 不是 br-lan 的 RA 一律丢弃；路由器自己的 RA 不进这条链
+	nft add rule bridge raguard input iifname != "br-lan" icmpv6 type nd-router-advert drop 2>/dev/null
+	logger -t raguard "RA guard installed"
+}
+
+stop() {
+	nft delete table bridge raguard 2>/dev/null || true
+}
