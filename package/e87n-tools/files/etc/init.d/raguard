@@ -1,19 +1,51 @@
 #!/bin/sh /etc/rc.common
-# 只允许路由器自己发 IPv6 RA，丢掉局域网里其他设备发的野 RA
-# （现场发现摄像头/旧路由会发 RA，客户端可能拿到错误的 IPv6 网关）
+# 局域网垃圾流量防护。解决现场两个真实问题：
+#
+# 1) 野 IPv6 RA
+#    光猫（ONT）通过 IPTV 那根线并进了局域网，它在向本网段发 IPv6 RA
+#    （fe80::1），客户端可能把光猫当成 IPv6 网关，而那条路根本走不通，
+#    表现为 iPhone 报「此网络正在阻止加密的 DNS 流量」、部分设备 IPv6 时好时坏。
+#    处理：bridge 层丢弃所有进入局域网的 RA。路由器自己的 RA 是发出的，不受影响。
+#
+# 2) IPTV 组播泛洪
+#    光猫 ITV 口接在非管理交换机上（没有 IGMP snooping），239.0.0.0/8 的组播
+#    被泛洪到所有端口。实测 833 包/秒、9 Mbps，占局域网收包量的 90%。
+#    处理：在网卡入口（netdev ingress，比桥更早）丢弃 239/8 与 232/8，
+#    但放行 224.0.0.0/24 与 SSDP 组播，避免影响投屏、DLNA、mDNS 发现。
+#
+# 注意：这里只能减轻路由器自身的负担。交换机泛洪本身无法在路由器侧消除，
+# 要彻底解决得让 IPTV 用独立交换机或管理型交换机做 VLAN/IGMP 隔离。
+
 START=19
 
-RULE_TABLE="bridge raguard"
+LANDEV=eth1
 
 start() {
-	nft list table bridge raguard >/dev/null 2>&1 && nft flush table bridge raguard 2>/dev/null
-	nft add table bridge raguard 2>/dev/null || true
-	nft add chain bridge raguard input "{ type filter hook prerouting priority -300; policy accept; }" 2>/dev/null || true
-	# iifname 不是 br-lan 的 RA 一律丢弃；路由器自己的 RA 不进这条链
-	nft add rule bridge raguard input iifname != "br-lan" icmpv6 type nd-router-advert drop 2>/dev/null
-	logger -t raguard "RA guard installed"
+	# ---- 1. 野 RA 守卫（bridge 层）----
+	nft delete table bridge raguard 2>/dev/null
+	nft add table bridge raguard 2>/dev/null
+	nft add chain bridge raguard prerouting \
+		'{ type filter hook prerouting priority -300; policy accept; }' 2>/dev/null
+	nft add rule bridge raguard prerouting icmpv6 type nd-router-advert drop 2>/dev/null
+
+	# ---- 2. IPTV 组播守卫（网卡入口）----
+	nft delete table netdev mcguard 2>/dev/null
+	nft add table netdev mcguard 2>/dev/null
+	nft add chain netdev mcguard ingress \
+		"{ type filter hook ingress device \"$LANDEV\" priority -500; policy accept; }" 2>/dev/null
+	# 先放行局域网发现类组播（投屏、mDNS、UPnP）
+	nft add rule netdev mcguard ingress ip daddr 239.255.255.250 accept 2>/dev/null
+	nft add rule netdev mcguard ingress ip daddr 239.255.255.253 accept 2>/dev/null
+	nft add rule netdev mcguard ingress ip daddr 224.0.0.0/24 accept 2>/dev/null
+	# 其余 239/8（IPTV 直播）/ 232/8（SSM 组播）丢弃
+	nft add rule netdev mcguard ingress ip daddr 239.0.0.0/8 drop 2>/dev/null
+	nft add rule netdev mcguard ingress ip daddr 232.0.0.0/8 drop 2>/dev/null
+
+	logger -t raguard "RA guard + IPTV multicast guard installed on $LANDEV"
 }
 
 stop() {
-	nft delete table bridge raguard 2>/dev/null || true
+	nft delete table bridge raguard 2>/dev/null
+	nft delete table netdev mcguard 2>/dev/null
+	logger -t raguard "guards removed"
 }
