@@ -1,0 +1,49 @@
+#!/bin/sh
+# 固件默认值：修掉 iStoreOS 25.12 里会影响所有人的 IPv6 问题。
+#
+# 只放"对任何用户都成立"的修正，不放任何与某一家运营商/某个家庭网络绑定的东西：
+#   - 不设 reqprefix（各家运营商委派长度不同，交给默认协商）
+#   - 不启用 UPnP（安全默认关闭，需要的用户在 LuCI 里自己开）
+#   - 不改 LAN 网段、不写任何账号
+#
+# 只跑一次：标记在 /etc/e87n（overlay 持久）。恢复出厂/新刷会重新应用，
+# sysupgrade 保留配置时不会覆盖用户改过的设置。
+
+MARK=/etc/e87n/.net-defaults-applied
+[ -f "$MARK" ] && exit 0
+[ -f /etc/config/network ] || exit 0
+
+# ---- IPv6 客户端：保持 dhcpv6 客户端启用 ----
+uci set network.wan6=interface
+uci set network.wan6.device='@wan'
+uci set network.wan6.proto='dhcpv6'
+uci set network.wan6.reqaddress='try'
+uci set network.wan6.norelease='1'
+uci set network.wan6.disabled='0'
+uci -q delete network.wan6.reqprefix      # 交给协商，不写死 /60 或 /56
+
+# ---- LAN 从委派前缀里取一个 /64 ----
+uci set network.lan.ip6assign='64'
+uci -q delete network.lan.ip6class
+uci commit network
+
+# ---- LAN 下发用纯 SLAAC ----
+# iStoreOS 默认带 ra_flags='managed-config'，客户端会等 DHCPv6 而不做 SLAAC，
+# 结果拿不到公网地址（实测：Windows 只有 ULA）。
+uci set dhcp.lan.ra='server'
+uci set dhcp.lan.dhcpv6='server'
+uci set dhcp.lan.ra_slaac='1'
+uci -q delete dhcp.lan.ra_flags
+uci -q delete dhcp.lan.ra_management
+uci commit dhcp
+
+# ---- dnsmasq 不要过滤 AAAA ----
+# iStoreOS 默认 filter_aaaa=1，会把所有 IPv6 域名解析丢掉，
+# 表现为"没有 IPv6"、ipv6 测速站全部 no such host。
+uci set dhcp.@dnsmasq[0].filter_aaaa='0'
+uci commit dhcp
+
+mkdir -p /etc/e87n
+touch "$MARK"
+echo "e87n: IPv6 默认修正已应用（filter_aaaa=0 / 纯 SLAAC / ip6assign=64）"
+exit 0

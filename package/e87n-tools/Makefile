@@ -59,7 +59,7 @@ define Package/e87n-tools/install
 		./files/etc/uci-defaults/99-e87n-hnat \
 		$(1)/etc/uci-defaults/99-e87n-hnat
 	$(INSTALL_BIN) \
-		./files/etc/uci-defaults/97-e87n-ipv6-upnp \
+		./files/etc/uci-defaults/97-e87n-net-defaults \
 		$(1)/etc/uci-defaults/97-e87n-ipv6-upnp
 	$(INSTALL_BIN) \
 		./files/usr/sbin/e87n-metrics \
