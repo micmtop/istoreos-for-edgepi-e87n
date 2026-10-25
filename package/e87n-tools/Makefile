@@ -28,6 +28,7 @@ endef
 define Package/e87n-tools/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/sbin $(1)/etc/uci-defaults
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd $(1)/usr/share/e87n-sdk
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) \
 		./files/usr/sbin/fan-control \
 		$(1)/usr/sbin/fan-control
@@ -56,11 +57,14 @@ define Package/e87n-tools/install
 		./files/etc/init.d/raguard \
 		$(1)/etc/init.d/raguard
 	$(INSTALL_BIN) \
+		./files/etc/hotplug.d/iface/90-e87n-ipv6-prune \
+		$(1)/etc/hotplug.d/iface/90-e87n-ipv6-prune
+	$(INSTALL_BIN) \
 		./files/etc/uci-defaults/99-e87n-hnat \
 		$(1)/etc/uci-defaults/99-e87n-hnat
 	$(INSTALL_BIN) \
 		./files/etc/uci-defaults/97-e87n-net-defaults \
-		$(1)/etc/uci-defaults/97-e87n-ipv6-upnp
+		$(1)/etc/uci-defaults/97-e87n-net-defaults
 	$(INSTALL_BIN) \
 		./files/usr/sbin/e87n-metrics \
 		$(1)/usr/sbin/e87n-metrics

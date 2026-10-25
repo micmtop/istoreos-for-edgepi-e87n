@@ -1,0 +1,43 @@
+#!/bin/sh
+# PD 变化后清理 br-lan 上过期的 IPv6 前缀地址。
+#
+# 现象：PPPoE 重拨后运营商换了委派前缀，netifd 只加新地址、不删旧地址，
+# br-lan 上会同时挂着新旧两个 /64。局域网设备继续用旧前缀的源地址发包，
+# 运营商那边已经不路由这个前缀 → 包被丢，表现为"网络不稳、连接卡住"，
+# 浏览器优先走 IPv6 的站点（SSE 长连接尤其明显）就会失败。
+#
+# 以 netifd 自己的 ipv6-prefix-assignment 为准，只保留它认可的前缀。
+
+[ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifupdate" ] || exit 0
+case "$INTERFACE" in
+	wan|wan6|wan_6|lan) ;;
+	*) exit 0 ;;
+esac
+
+sleep 3
+
+ALLOW=$(ifstatus lan 2>/dev/null | sed -n '/"ipv6-prefix-assignment"/,/^\t\],/p' \
+	| sed -n 's/.*"address": "\([0-9a-f:]*\)".*/\1/p')
+[ -z "$ALLOW" ] && exit 0
+
+for a in $(ip -6 addr show dev br-lan 2>/dev/null | sed -n 's/^ *inet6 \([0-9a-f:]*\)\/.*/\1/p'); do
+	case "$a" in
+		fe80*|::1) continue ;;
+	esac
+	keep=0
+	for p in $ALLOW; do
+		case "$a" in
+			"$p"*) keep=1; break ;;
+		esac
+	done
+	if [ "$keep" = "0" ]; then
+		if ip -6 addr del "$a/64" dev br-lan 2>/dev/null; then
+			logger -t e87n-ipv6 "删除过期前缀地址 $a"
+		else
+			ip -6 addr del "$a" dev br-lan 2>/dev/null \
+				&& logger -t e87n-ipv6 "删除过期前缀地址 $a"
+		fi
+	fi
+done
+
+exit 0
