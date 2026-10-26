@@ -1,47 +1,69 @@
 #!/bin/sh /etc/rc.common
-# 局域网垃圾流量防护。解决现场两个真实问题：
+# 局域网垃圾流量防护。解决现场四个实测问题：
 #
-# 1) 野 IPv6 RA
-#    光猫（ONT）通过 IPTV 那根线并进了局域网，它在向本网段发 IPv6 RA
-#    （fe80::1），客户端可能把光猫当成 IPv6 网关，而那条路根本走不通，
-#    表现为 iPhone 报「此网络正在阻止加密的 DNS 流量」、部分设备 IPv6 时好时坏。
-#    处理：bridge 层丢弃所有进入局域网的 RA。路由器自己的 RA 是发出的，不受影响。
+# 1) 【地址冲突】光猫的管理地址也是 192.168.1.1，而且它的 ITV 口通过网线
+#    并进了我们的交换机，所以同一个二层里有两个 192.168.1.1：
+#        我们 br-lan : 72:b1:c4:55:83:b1
+#        光猫        : 94:e7:ea:64:cd:18
+#    客户端 ARP 缓存被两边来回刷新 → 网关时通时不通（随机卡顿、SSH 断开、
+#    浏览器访问 192.168.1.1 有时跳到光猫页面）。arping -D 可直接复现。
+#    处理：丢弃光猫发来的 ARP 与其非组播 IPv4（路由器自己不再被抢；
+#    客户端侧的冲突只能靠改光猫 IP 或物理隔离 ITV 线解决）。
 #
-# 2) IPTV 组播泛洪
-#    光猫 ITV 口接在非管理交换机上（没有 IGMP snooping），239.0.0.0/8 的组播
-#    被泛洪到所有端口。实测 833 包/秒、9 Mbps，占局域网收包量的 90%。
-#    处理：在网卡入口（netdev ingress，比桥更早）丢弃 239/8 与 232/8，
-#    但放行 224.0.0.0/24 与 SSDP 组播，避免影响投屏、DLNA、mDNS 发现。
+# 2) 【IPTV 组播泛洪】光猫 ITV 口接在非管理交换机上，无 IGMP snooping，
+#    239.0.0.0/8 被泛洪到所有端口。实测 835 包/秒 / 9 Mbps，占局域网收包 90%。
+#    处理：网卡入口丢弃 239/8、232/8，放行 224/24 与 SSDP（投屏/DLNA）。
 #
-# 注意：这里只能减轻路由器自身的负担。交换机泛洪本身无法在路由器侧消除，
-# 要彻底解决得让 IPTV 用独立交换机或管理型交换机做 VLAN/IGMP 隔离。
+# 3) 【运营商内网泄漏】同一根 ITV 线把运营商内部网络（VLAN 43，10.46.x/10.54.x）
+#    的 ARP 也带进来了，实测 39 包/秒。处理：丢弃来自 10.0.0.0/8 的 ARP 和 IPv4。
+#
+# 4) 【野 IPv6 RA】光猫在向本网段发 RA（fe80::1），客户端可能把它当 IPv6 网关，
+#    而那条路走不通（表现为 iPhone 报「此网络正在阻止加密的 DNS 流量」）。
+#    处理：bridge 层丢弃所有进入局域网的 RA。
+#
+# 注意：这些只能救路由器自身。交换机泛洪和客户端的 ARP 冲突无法在路由器侧
+# 消除，根治要让 IPTV 走独立交换机/独立 VLAN，或把光猫的 LAN IP 改掉。
 
 START=19
 
 LANDEV=eth1
+ONT_MAC=94:e7:ea:64:cd:18
+ISP_GW_MAC=00:86:08:30:00:01
 
 start() {
-	# ---- 1. 野 RA 守卫（bridge 层）----
+	# ---- 野 RA 守卫（bridge 层）----
 	nft delete table bridge raguard 2>/dev/null
 	nft add table bridge raguard 2>/dev/null
 	nft add chain bridge raguard prerouting \
 		'{ type filter hook prerouting priority -300; policy accept; }' 2>/dev/null
 	nft add rule bridge raguard prerouting icmpv6 type nd-router-advert drop 2>/dev/null
 
-	# ---- 2. IPTV 组播守卫（网卡入口）----
+	# ---- 入口守卫（netdev ingress，最早的丢弃点）----
 	nft delete table netdev mcguard 2>/dev/null
 	nft add table netdev mcguard 2>/dev/null
 	nft add chain netdev mcguard ingress \
 		"{ type filter hook ingress device \"$LANDEV\" priority -500; policy accept; }" 2>/dev/null
-	# 先放行局域网发现类组播（投屏、mDNS、UPnP）
+
+	# 放行局域网发现类组播（投屏、mDNS、UPnP）
 	nft add rule netdev mcguard ingress ip daddr 239.255.255.250 accept 2>/dev/null
 	nft add rule netdev mcguard ingress ip daddr 239.255.255.253 accept 2>/dev/null
 	nft add rule netdev mcguard ingress ip daddr 224.0.0.0/24 accept 2>/dev/null
-	# 其余 239/8（IPTV 直播）/ 232/8（SSM 组播）丢弃
+
+	# IPTV 直播组播
 	nft add rule netdev mcguard ingress ip daddr 239.0.0.0/8 drop 2>/dev/null
 	nft add rule netdev mcguard ingress ip daddr 232.0.0.0/8 drop 2>/dev/null
 
-	logger -t raguard "RA guard + IPTV multicast guard installed on $LANDEV"
+	# 运营商内网泄漏（VLAN 43 的 10.x）
+	nft add rule netdev mcguard ingress arp saddr ip 10.0.0.0/8 drop 2>/dev/null
+	nft add rule netdev mcguard ingress ip saddr 10.0.0.0/8 drop 2>/dev/null
+	nft add rule netdev mcguard ingress ether saddr $ISP_GW_MAC drop 2>/dev/null
+
+	# 光猫抢占 192.168.1.1：只丢它的 ARP 和非组播 IPv4，
+	# 保留 IPv6 链路本地（http://[fe80::1]/ 仍可管理光猫）
+	nft add rule netdev mcguard ingress ether saddr $ONT_MAC ether type arp drop 2>/dev/null
+	nft add rule netdev mcguard ingress ether saddr $ONT_MAC ip daddr != 239.0.0.0/8 drop 2>/dev/null
+
+	logger -t raguard "guards installed on $LANDEV (RA / IPTV multicast / ONT leak / ARP conflict)"
 }
 
 stop() {
