@@ -213,6 +213,39 @@ jobs:
           cd build/istoreos
           make CCACHE=y -j4 V=s target/linux/compile 2>&1 | tee /tmp/kernel-build.log | tail -80
 
+      - name: Build kmod packages (installable without reflashing)
+        # 我们的内核带 MT7987 补丁和自定义配置，ABI 哈希与官方镜像站不同，
+        # 所以公共源里的 kmod-* 永远装不上。这里把本内核的 kmod 全部编成
+        # 独立 .apk，发布后设备上用 `apk add --allow-untrusted` 直接装，
+        # 装完注册进 apk 数据库，不需要整机刷写。
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cd build/istoreos
+          make CCACHE=y -j4 V=s package/kernel/linux/compile 2>&1 | tee /tmp/kmod-build.log | tail -60
+
+      - name: Collect kmod .apk files
+        if: always()
+        run: |
+          cd build/istoreos
+          mkdir -p /tmp/kmods
+          find bin -name 'kmod-*.apk' -exec cp -n {} /tmp/kmods/ \; 2>/dev/null || true
+          # base 源里的内核相关包（kernel 本体、iptables-nft 等）一并带上
+          find bin -name 'kernel-*.apk' -exec cp -n {} /tmp/kmods/ \; 2>/dev/null || true
+          N=$(ls /tmp/kmods 2>/dev/null | wc -l)
+          echo "collected $N apk files"
+          ls -l /tmp/kmods 2>/dev/null | head -10
+          [ "$N" -gt 0 ] || echo "WARN: no kmod apk produced"
+
+      - name: Upload kmod bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmods-apk
+          path: /tmp/kmods
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Build kernel FIT (no rootfs)
         id: fit
         continue-on-error: true
