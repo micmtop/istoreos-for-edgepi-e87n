@@ -23,6 +23,11 @@ on:
         description: 'Build fb_nv3007 as module (=m) and upload .ko for insmod iteration'
         type: boolean
         default: false
+      expect_kernel_hash:
+        description: '内核 ABI 哈希（可选）。填了就必须与本次构建结果一致，否则失败'
+        type: string
+        default: ''
+        required: false
       cache_bust:
         description: 'Bump to invalidate the cached kernel tree'
         type: string
@@ -66,9 +71,15 @@ jobs:
       - name: Clone iStoreOS source
         run: |
           cd build
-          # 不跑 feeds：内核构建不需要任何 feed 包，省 3-5 min。
           git clone -b istoreos-25.12 --depth 1 \
             https://github.com/istoreos/istoreos.git istoreos
+          cd istoreos
+          # 必须与全量构建的 feeds / 包选择完全一致：否则 make defconfig 解析出的
+          # 内核配置不同 → 内核 ABI 哈希不同 → 产出的 kmod 装不到正式固件上。
+          # 实测：跳过 feeds 时哈希是 f79568e2，正式固件是 71653dd0，装不上。
+          printf 'src-git nas https://github.com/linkease/nas-packages.git;linkeasefull\nsrc-git nas_luci https://github.com/linkease/nas-packages-luci.git;main\n' >> feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
       - name: Compute cache keys
         id: key
@@ -172,6 +183,22 @@ jobs:
           cp ../e87n.config .config
           make defconfig
           grep -q '^CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n=y' .config
+
+      - name: Gate - kernel ABI hash parity
+        # kmod 能否安装取决于内核包的 ABI 哈希。把本次构建的哈希打印出来；
+        # 若传入了 expect_kernel_hash，则必须一致，否则这批 kmod 白编。
+        run: |
+          set -o pipefail
+          cd build/istoreos
+          HASH=$(grep -oE '6\.12\.[0-9]+~[0-9a-f]{20,}' .config 2>/dev/null | head -1 || true)
+          [ -n "$HASH" ] || HASH=$(grep -oE 'kernel-6\.12\.[0-9]+~[0-9a-f]+' include/kernel-version.mk 2>/dev/null | head -1 || true)
+          echo "kernel ABI mark: ${HASH:-unknown}"
+          if [ -n "${{ inputs.expect_kernel_hash }}" ]; then
+            case "$HASH" in
+              *"${{ inputs.expect_kernel_hash }}"*) echo "kernel hash parity OK" ;;
+              *) echo "FATAL: kernel hash mismatch, expected ${{ inputs.expect_kernel_hash }}, got '$HASH'"; exit 1 ;;
+            esac
+          fi
 
       - name: Prepare kernel
         run: |
