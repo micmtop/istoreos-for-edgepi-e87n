@@ -67,6 +67,9 @@ define Package/e87n-tools/install
 		./files/etc/docker/daemon.json \
 		$(1)/etc/docker/daemon.json
 	$(INSTALL_BIN) \
+		./files/etc/uci-defaults/96-e87n-mac \
+		$(1)/etc/uci-defaults/96-e87n-mac
+	$(INSTALL_BIN) \
 		./files/etc/uci-defaults/97-e87n-net-defaults \
 		$(1)/etc/uci-defaults/97-e87n-net-defaults
 	$(INSTALL_BIN) \

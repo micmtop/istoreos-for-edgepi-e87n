@@ -1,0 +1,37 @@
+#!/bin/sh
+# 首次启动生成一次固定的 MAC 地址并写入 uci。
+#
+# 背景（现场实测）：这块板子没有出厂 MAC——p2 出厂分区全 0、U-Boot 环境也没有
+# ethaddr，内核只能用随机生成的本地管理地址（0e:… / 5a:… 这类）。后果：
+#
+#   1) 每次重启 WAN MAC 都变。运营商 BRAS 按 MAC 绑定 PPPoE 会话，新会话要等
+#      旧会话超时（LCP timeout 重试 3 次，约 90 秒）才被接受，表现为"刚刷机
+#      每次拨号都 negotiation fail，过一分半又自己好了"。
+#   2) LAN 网关 MAC 也每次变，客户端 ARP 缓存与 DHCP 租约跟着乱。
+#
+# 做法：用 eMMC 的 CID 派生（同一台设备重刷固件后值不变，不同设备不同），
+# 分别给 LAN 桥和 WAN 口一个固定地址。已经设置过就跳过，不覆盖用户值。
+
+[ -f /etc/config/network ] || exit 0
+[ -n "$(uci -q get network.wan.macaddr)" ] && exit 0
+
+SEED=$(cat /sys/block/mmcblk0/device/cid 2>/dev/null)
+[ -n "$SEED" ] || SEED=$(cat /etc/machine-id 2>/dev/null)
+[ -n "$SEED" ] || SEED=$(cat /proc/sys/kernel/random/uuid 2>/dev/null)
+[ -n "$SEED" ] || exit 0
+
+H=$(printf '%s' "$SEED" | md5sum 2>/dev/null | cut -c1-10)
+[ -n "$H" ] || exit 0
+
+# 第一个字节保留"本地管理 + 单播"位（5a / 0e），后五字节取自哈希
+MAC_LAN="5a:$(echo $H | cut -c1-2):$(echo $H | cut -c3-4):$(echo $H | cut -c5-6):$(echo $H | cut -c7-8):$(echo $H | cut -c9-10)"
+MAC_WAN="0e:$(echo $H | cut -c1-2):$(echo $H | cut -c3-4):$(echo $H | cut -c5-6):$(echo $H | cut -c7-8):$(echo $H | cut -c9-10)"
+
+cfg=$(uci -q show network | sed -n "s/^\(network\.[^.]*\)\.name='br-lan'$/\1/p" | head -1)
+[ -n "$cfg" ] || cfg="network.@device[0]"
+uci set "$cfg.macaddr"="$MAC_LAN"
+uci set network.wan.macaddr="$MAC_WAN"
+uci commit network
+
+echo "e87n: MAC 已固化 lan=$MAC_LAN wan=$MAC_WAN"
+exit 0
