@@ -166,7 +166,7 @@ jobs:
           done
           # Docker 依赖：defconfig 会静默丢包（store 那次教训）。
           # 缺 veth/memcg 容器根本起不来，这里提前失败，别浪费 1.5 小时。
-          for s in dockerd containerd runc docker kmod-veth kmod-br-netfilter kmod-dummy kmod-ipt-nat iptables-nft kmod-zram zram-swap; do
+          for s in dockerd containerd runc docker kmod-veth kmod-br-netfilter kmod-dummy kmod-ipt-nat iptables-nft kmod-zram zram-swap kmod-fs-xfs kmod-fs-cifs kmod-fs-udf kmod-fs-isofs kmod-fs-nfs kmod-fs-nfsd kmod-fs-ksmbd kmod-fuse kmod-loop kmod-md-raid456 kmod-usb-storage kmod-usb-storage-extras kmod-nls-cp936 kmod-dm kmod-crypto-xts kmod-crypto-cbc kmod-crypto-cts kmod-macvlan kmod-wireguard kmod-ipt-extra kmod-ip6tables kmod-ipt-nat6 kmod-ipt-physdev kmod-nf-ipvs kmod-nf-nathelper kmod-nf-nathelper-extra ksmbd-server; do
             if grep -q "^CONFIG_PACKAGE_${s}=y" .config; then
               echo "OK   docker dep $s"
             else
