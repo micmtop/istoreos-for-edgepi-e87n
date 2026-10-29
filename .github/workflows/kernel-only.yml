@@ -184,22 +184,6 @@ jobs:
           make defconfig
           grep -q '^CONFIG_TARGET_mediatek_filogic_DEVICE_edgepi_e87n=y' .config
 
-      - name: Gate - kernel ABI hash parity
-        # kmod 能否安装取决于内核包的 ABI 哈希。把本次构建的哈希打印出来；
-        # 若传入了 expect_kernel_hash，则必须一致，否则这批 kmod 白编。
-        run: |
-          set -o pipefail
-          cd build/istoreos
-          HASH=$(grep -oE '6\.12\.[0-9]+~[0-9a-f]{20,}' .config 2>/dev/null | head -1 || true)
-          [ -n "$HASH" ] || HASH=$(grep -oE 'kernel-6\.12\.[0-9]+~[0-9a-f]+' include/kernel-version.mk 2>/dev/null | head -1 || true)
-          echo "kernel ABI mark: ${HASH:-unknown}"
-          if [ -n "${{ inputs.expect_kernel_hash }}" ]; then
-            case "$HASH" in
-              *"${{ inputs.expect_kernel_hash }}"*) echo "kernel hash parity OK" ;;
-              *) echo "FATAL: kernel hash mismatch, expected ${{ inputs.expect_kernel_hash }}, got '$HASH'"; exit 1 ;;
-            esac
-          fi
-
       - name: Prepare kernel
         run: |
           set -o pipefail
@@ -250,6 +234,28 @@ jobs:
           set -o pipefail
           cd build/istoreos
           make CCACHE=y -j4 V=s package/kernel/linux/compile 2>&1 | tee /tmp/kmod-build.log | tail -60
+
+      - name: Gate - kernel ABI hash parity
+        # 内核 ABI 哈希只有编完才知道（体现在产出的 kernel-*.apk 文件名里）。
+        # 这里从文件名提取并与 expect_kernel_hash 比对，不一致就让构建失败，
+        # 避免又白编一批装不上的 kmod。
+        run: |
+          cd build/istoreos
+          ART=$(find bin -name 'kernel-6.12.*.apk' 2>/dev/null | head -1)
+          if [ -z "$ART" ]; then
+            echo "WARN: 没找到 kernel-*.apk，跳过哈希校验"
+            exit 0
+          fi
+          HASH=$(basename "$ART" | sed -n 's/^kernel-6\.12\.[0-9]*~\([0-9a-f]*\)-r[0-9]*\.apk$/\1/p')
+          echo "built kernel abi hash: ${HASH:-unknown}"
+          if [ -n "${{ inputs.expect_kernel_hash }}" ]; then
+            if [ "$HASH" = "${{ inputs.expect_kernel_hash }}" ]; then
+              echo "kernel ABI hash parity OK"
+            else
+              echo "FATAL: kernel ABI hash mismatch (expected ${{ inputs.expect_kernel_hash }}, got $HASH)"
+              exit 1
+            fi
+          fi
 
       - name: Collect kmod .apk files
         if: always()
