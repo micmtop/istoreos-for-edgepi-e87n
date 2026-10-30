@@ -282,6 +282,31 @@ jobs:
           [ -n "$FONT" ] || { echo "FATAL: 系统字体没打进包"; exit 1; }
           ls -l "$APP" "$JSN" "$FONT"
 
+      - name: Collect kmod .apk (same kernel hash as the firmware)
+        # 为什么要单独发布：公共镜像站的 kmods 是按官方内核配置算的 ABI 哈希，
+        # 和我们的（带 MT7987 补丁与自定义配置）永远不同，所以设备上 apk 装不了
+        # 任何 kmod-*。把本次构建的 kmod 包连同固件一起发布，设备上直接
+        # `apk add --allow-untrusted` 安装即可登记进数据库，无需刷机。
+        if: always()
+        run: |
+          cd build/istoreos
+          mkdir -p /tmp/kmods
+          find bin -name 'kmod-*.apk' -exec cp -n {} /tmp/kmods/ \; 2>/dev/null || true
+          find bin -name 'kernel-6.12.*.apk' -exec cp -n {} /tmp/kmods/ \; 2>/dev/null || true
+          N=$(ls /tmp/kmods 2>/dev/null | wc -l)
+          echo "collected $N apk files"
+          KART=$(ls /tmp/kmods/kernel-6.12.*.apk 2>/dev/null | head -1)
+          [ -n "$KART" ] && echo "kernel ABI hash: $(basename "$KART" | sed -n 's/^kernel-6\.12\.[0-9]*~\([0-9a-f]*\)-r.*$/\1/p')"
+
+      - name: Upload kmod bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmods-apk
+          path: /tmp/kmods
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         if: always()
