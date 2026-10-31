@@ -51,27 +51,26 @@ jobs:
           echo "SYSUP=$SYS" >> "$GITHUB_ENV"
           echo "FIT=edgepi_e87n-kernel-${KVER}.fit" >> "$GITHUB_ENV"
 
-      - name: Bundle the kmod .apk that match this build's kernel
-        # 设备上 apk 数据库里没有登记这些 kmod（镜像构建的间隙），而公共镜像站
-        # 又因为 ABI 哈希不同永远装不上。这里把构建产物里的 kmod 包单独打包发布，
-        # 设备上 `apk add --allow-untrusted` 即可登记，不需要刷机。
+      - name: Download the kmod .apk bundle from the build run
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: kmods-apk
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: kmods
+
+      - name: Package the kmod bundle for the release
         run: |
           set -e
-          cd fw
-          echo "=== artifact 内容概览 ==="
-          find . -maxdepth 3 -type d | head -12
-          echo "=== apk 数量 ==="
-          find . -name '*.apk' | wc -l
-          find . -name '*.apk' | head -5
-          KM=$(find . -name 'kernel-6.12.*.apk' | head -1)
-          if [ -z "$KM" ]; then echo "no kmod packages in artifact"; exit 0; fi
+          if [ ! -d kmods ] || [ -z "$(ls -A kmods 2>/dev/null)" ]; then
+            echo "no kmods-apk artifact in that run; skipping"
+            exit 0
+          fi
+          KM=$(ls kmods/kernel-6.12.*.apk 2>/dev/null | head -1)
           HASH=$(basename "$KM" | sed -n 's/^kernel-6\.12\.[0-9]*~\([0-9a-f]*\)-r.*$/\1/p')
-          echo "kernel ABI hash: $HASH"
-          mkdir -p km
-          find . -name 'kmod-*.apk' -exec cp -n {} km/ \; 2>/dev/null || true
-          cp "$KM" km/ 2>/dev/null || true
-          N=$(ls km | wc -l); echo "collecting $N apk"
-          tar -czf "e87n-kmods-${HASH}.tar.gz" -C km .
+          echo "kernel ABI hash: $HASH, $(ls kmods | wc -l) apk"
+          tar -czf "e87n-kmods-${HASH}.tar.gz" -C kmods .
           sha256sum "e87n-kmods-${HASH}.tar.gz" >> SHA256SUMS
           echo "KMODS=e87n-kmods-${HASH}.tar.gz" >> "$GITHUB_ENV"
 
