@@ -51,6 +51,25 @@ jobs:
           echo "SYSUP=$SYS" >> "$GITHUB_ENV"
           echo "FIT=edgepi_e87n-kernel-${KVER}.fit" >> "$GITHUB_ENV"
 
+      - name: Bundle the kmod .apk that match this build's kernel
+        # 设备上 apk 数据库里没有登记这些 kmod（镜像构建的间隙），而公共镜像站
+        # 又因为 ABI 哈希不同永远装不上。这里把构建产物里的 kmod 包单独打包发布，
+        # 设备上 `apk add --allow-untrusted` 即可登记，不需要刷机。
+        run: |
+          set -e
+          cd fw
+          KM=$(find . -name 'kernel-6.12.*.apk' | head -1)
+          if [ -z "$KM" ]; then echo "no kmod packages in artifact"; exit 0; fi
+          HASH=$(basename "$KM" | sed -n 's/^kernel-6\.12\.[0-9]*~\([0-9a-f]*\)-r.*$/\1/p')
+          echo "kernel ABI hash: $HASH"
+          mkdir -p km
+          find . -name 'kmod-*.apk' -exec cp -n {} km/ \; 2>/dev/null || true
+          cp "$KM" km/ 2>/dev/null || true
+          N=$(ls km | wc -l); echo "collecting $N apk"
+          tar -czf "e87n-kmods-${HASH}.tar.gz" -C km .
+          sha256sum "e87n-kmods-${HASH}.tar.gz" >> SHA256SUMS
+          echo "KMODS=e87n-kmods-${HASH}.tar.gz" >> "$GITHUB_ENV"
+
       - name: Create release and upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
