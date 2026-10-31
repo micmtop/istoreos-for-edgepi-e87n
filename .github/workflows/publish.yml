@@ -58,6 +58,11 @@ jobs:
         run: |
           set -e
           cd fw
+          echo "=== artifact 内容概览 ==="
+          find . -maxdepth 3 -type d | head -12
+          echo "=== apk 数量 ==="
+          find . -name '*.apk' | wc -l
+          find . -name '*.apk' | head -5
           KM=$(find . -name 'kernel-6.12.*.apk' | head -1)
           if [ -z "$KM" ]; then echo "no kmod packages in artifact"; exit 0; fi
           HASH=$(basename "$KM" | sed -n 's/^kernel-6\.12\.[0-9]*~\([0-9a-f]*\)-r.*$/\1/p')
